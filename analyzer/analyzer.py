@@ -1,0 +1,108 @@
+from __future__ import annotations
+
+from analyzer.dag_builder import DAGBuilder
+from analyzer.extractor import FormattedPlanExtractor
+from analyzer.normalizer import PlanNormalizer
+from analyzer.parser import PlanParser
+
+from models.analysis_report import AnalysisReport
+
+from rules.aqe_rules import AQERule
+from rules.aggregation_rules import AggregationRule
+from rules.engine import RuleEngine
+from rules.exchange_rules import ExchangeRule
+from rules.join_rules import BroadcastJoinRule
+from rules.partition_rules import PartitionRule
+from rules.performance_rules import PerformanceRule
+from rules.pipeline_rules import PipelineRule
+from rules.shuffle_rules import ShuffleRule
+from rules.sort_rules import SortRule
+from rules.stage_rules import StageRule
+
+
+class SparkAnalyzer:
+    """
+    High-level orchestration entry point for SparkLens.
+    """
+
+    def __init__(
+        self,
+        rule_engine: RuleEngine | None = None,
+    ) -> None:
+
+        self._extractor = FormattedPlanExtractor()
+        self._normalizer = PlanNormalizer()
+        self._parser = PlanParser()
+        self._builder = DAGBuilder()
+
+        self._rule_engine = (
+            rule_engine
+            if rule_engine is not None
+            else self._default_rule_engine()
+        )
+
+    def analyze(
+        self,
+        dataframe,
+    ) -> AnalysisReport:
+        """
+        Analyze a Spark DataFrame.
+
+        The extractor obtains the formatted execution plan from the
+        DataFrame before the remaining analysis pipeline is executed.
+        """
+
+        plan = self._extractor.extract(
+            dataframe
+        )
+
+        return self.analyze_plan(
+            plan
+        )
+
+    def analyze_plan(
+        self,
+        plan: str,
+    ) -> AnalysisReport:
+        """
+        Analyze an already extracted Spark execution plan.
+
+        Useful for unit tests and sample execution plans.
+        """
+
+        normalized_plan = self._normalizer.normalize(
+            plan
+        )
+
+        parsed_plan = self._parser.parse(
+            normalized_plan
+        )
+
+        dag = self._builder.build(
+            parsed_plan
+        )
+
+        return self._rule_engine.run(
+            dag
+        )
+
+    @staticmethod
+    def _default_rule_engine() -> RuleEngine:
+        """
+        Create the default SparkLens rule engine.
+        """
+
+        return RuleEngine(
+            [
+                BroadcastJoinRule(),
+                ShuffleRule(),
+                ExchangeRule(),
+                PartitionRule(),
+                AggregationRule(),
+                SortRule(),
+                AQERule(),
+                StageRule(),
+                PerformanceRule(),
+                PipelineRule(),
+            ]
+        )
