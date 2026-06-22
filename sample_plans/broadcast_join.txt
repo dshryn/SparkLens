@@ -1,0 +1,119 @@
+== Physical Plan ==
+AdaptiveSparkPlan (23)
++- == Initial Plan ==
+   PhotonResultStage (22)
+   +- PhotonColumnarToRow (21)
+      +- PhotonSort (20)
+         +- PhotonShuffleExchangeSource (19)
+            +- PhotonShuffleMapStage (18)
+               +- PhotonShuffleExchangeSink (17)
+                  +- PhotonProject (16)
+                     +- PhotonGroupingAgg (15)
+                        +- PhotonShuffleExchangeSource (14)
+                           +- PhotonShuffleMapStage (13)
+                              +- PhotonShuffleExchangeSink (12)
+                                 +- PhotonGroupingAgg (11)
+                                    +- PhotonProject (10)
+                                       +- PhotonBroadcastHashJoin Inner (9)
+                                          :- PhotonGroupingAgg (3)
+                                          :  +- PhotonProject (2)
+                                          :     +- PhotonRange (1)
+                                          +- PhotonShuffleExchangeSource (8)
+                                             +- PhotonShuffleMapStage (7)
+                                                +- PhotonShuffleExchangeSink (6)
+                                                   +- PhotonProject (5)
+                                                      +- PhotonRange (4)
+
+
+(1) PhotonRange
+Output [1]: [id#11205L]
+Arguments: Range (0, 1000, step=1, splits=8)
+
+(2) PhotonProject
+Input [1]: [id#11205L]
+Arguments: [(id#11205L % 100) AS value#11207L]
+
+(3) PhotonGroupingAgg
+Input [1]: [value#11207L]
+Arguments: [value#11207L], [partial_count(1) AS count#11213L], [count#11213L], [value#11207L, count#11213L], false
+
+(4) PhotonRange
+Output [1]: [id#11208L]
+Arguments: Range (0, 100, step=1, splits=8)
+
+(5) PhotonProject
+Input [1]: [id#11208L]
+Arguments: [id#11208L AS value#11209L]
+
+(6) PhotonShuffleExchangeSink
+Input [1]: [value#11209L]
+Arguments: SinglePartition
+
+(7) PhotonShuffleMapStage
+Input [1]: [value#11209L]
+Arguments: EXECUTOR_BROADCAST, [id=#7702]
+
+(8) PhotonShuffleExchangeSource
+Input [1]: [value#11209L]
+
+(9) PhotonBroadcastHashJoin
+Left keys [1]: [value#11207L]
+Right keys [1]: [value#11209L]
+Join type: Inner
+Join condition: None
+
+(10) PhotonProject
+Input [3]: [value#11207L, count#11213L, value#11209L]
+Arguments: [value#11207L, count#11213L]
+
+(11) PhotonGroupingAgg
+Input [2]: [value#11207L, count#11213L]
+Arguments: [value#11207L], [merge_count(merge count#11213L) AS count#11213L], [count#11213L], [value#11207L, count#11213L], false
+
+(12) PhotonShuffleExchangeSink
+Input [2]: [value#11207L, count#11213L]
+Arguments: hashpartitioning(value#11207L, 16)
+
+(13) PhotonShuffleMapStage
+Input [2]: [value#11207L, count#11213L]
+Arguments: ENSURE_REQUIREMENTS, [id=#7711]
+
+(14) PhotonShuffleExchangeSource
+Input [2]: [value#11207L, count#11213L]
+
+(15) PhotonGroupingAgg
+Input [2]: [value#11207L, count#11213L]
+Arguments: [value#11207L], [finalmerge_count(merge count#11213L) AS count(1)#11211L], [count(1)#11211L], [value#11207L, count(1)#11211L], true
+
+(16) PhotonProject
+Input [2]: [value#11207L, count(1)#11211L]
+Arguments: [value#11207L, count(1)#11211L AS count#11210L]
+
+(17) PhotonShuffleExchangeSink
+Input [2]: [value#11207L, count#11210L]
+Arguments: rangepartitioning(count#11210L ASC NULLS FIRST, 16)
+
+(18) PhotonShuffleMapStage
+Input [2]: [value#11207L, count#11210L]
+Arguments: ENSURE_REQUIREMENTS, [id=#7719]
+
+(19) PhotonShuffleExchangeSource
+Input [2]: [value#11207L, count#11210L]
+
+(20) PhotonSort
+Input [2]: [value#11207L, count#11210L]
+Arguments: [count#11210L ASC NULLS FIRST]
+
+(21) PhotonColumnarToRow
+Input [2]: [value#11207L, count#11210L]
+
+(22) PhotonResultStage
+Input [2]: [value#11207L, count#11210L]
+
+(23) AdaptiveSparkPlan
+Output [2]: [value#11207L, count#11210L]
+Arguments: isFinalPlan=false
+
+
+== Photon Explanation ==
+The query is fully supported by Photon.

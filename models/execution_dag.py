@@ -4,6 +4,7 @@ from collections import deque
 from dataclasses import dataclass, field
 
 from .base import BaseModel
+from .execution_edge import ExecutionEdge
 from .physical_operator import PhysicalOperator
 
 
@@ -17,18 +18,44 @@ class ExecutionDAG(BaseModel):
     """
 
     operators: dict[int, PhysicalOperator] = field(default_factory=dict)
+    edges: list[ExecutionEdge] = field(default_factory=list)
     parent_map: dict[int, list[int]] = field(default_factory=dict)
 
     def add_operator(self, operator: PhysicalOperator) -> None:
+        """
+        Add an operator to the DAG.
+        """
+
+        if operator.operator_id in self.operators:
+            raise ValueError(
+                f"Duplicate operator {operator.operator_id}"
+            )
+
         self.operators[operator.operator_id] = operator
         self.parent_map.setdefault(operator.operator_id, [])
 
     def connect(self, parent_id: int, child_id: int) -> None:
+        """
+        Connect two operators with a directed edge.
+        """
+
         if parent_id not in self.operators:
-            raise ValueError(f"Unknown parent operator {parent_id}")
+            raise ValueError(
+                f"Unknown parent operator {parent_id}"
+            )
 
         if child_id not in self.operators:
-            raise ValueError(f"Unknown child operator {child_id}")
+            raise ValueError(
+                f"Unknown child operator {child_id}"
+            )
+
+        edge = ExecutionEdge(
+            parent_id=parent_id,
+            child_id=child_id,
+        )
+
+        if edge not in self.edges:
+            self.edges.append(edge)
 
         parent = self.operators[parent_id]
 
@@ -40,48 +67,66 @@ class ExecutionDAG(BaseModel):
         if parent_id not in self.parent_map[child_id]:
             self.parent_map[child_id].append(parent_id)
 
-    def get_operator(self, operator_id: int) -> PhysicalOperator:
+    def get_operator(
+        self,
+        operator_id: int,
+    ) -> PhysicalOperator:
         return self.operators[operator_id]
 
-    def children(self, operator_id: int) -> list[PhysicalOperator]:
+    def children(
+        self,
+        operator_id: int,
+    ) -> list[PhysicalOperator]:
         return [
-            self.operators[c]
-            for c in self.operators[operator_id].children
+            self.operators[child_id]
+            for child_id in self.operators[operator_id].children
         ]
 
-    def parents(self, operator_id: int) -> list[PhysicalOperator]:
+    def parents(
+        self,
+        operator_id: int,
+    ) -> list[PhysicalOperator]:
         return [
-            self.operators[p]
-            for p in self.parent_map.get(operator_id, [])
+            self.operators[parent_id]
+            for parent_id in self.parent_map.get(operator_id, [])
         ]
 
     def root_nodes(self) -> list[PhysicalOperator]:
         return [
-            op
-            for op in self.operators.values()
-            if len(self.parent_map[op.operator_id]) == 0
+            operator
+            for operator in self.operators.values()
+            if len(self.parent_map[operator.operator_id]) == 0
         ]
 
     def leaf_nodes(self) -> list[PhysicalOperator]:
         return [
-            op
-            for op in self.operators.values()
-            if len(op.children) == 0
+            operator
+            for operator in self.operators.values()
+            if len(operator.children) == 0
         ]
 
     def topological_order(self) -> list[PhysicalOperator]:
+        """
+        Return operators in topological order.
+
+        Raises
+        ------
+        ValueError
+            If the graph contains a cycle.
+        """
+
         indegree = {
-            node_id: len(parents)
-            for node_id, parents in self.parent_map.items()
+            operator_id: len(parents)
+            for operator_id, parents in self.parent_map.items()
         }
 
         queue = deque(
-            node_id
-            for node_id, degree in indegree.items()
+            operator_id
+            for operator_id, degree in indegree.items()
             if degree == 0
         )
 
-        ordering = []
+        ordering: list[PhysicalOperator] = []
 
         while queue:
             node = queue.popleft()
@@ -92,5 +137,10 @@ class ExecutionDAG(BaseModel):
 
                 if indegree[child] == 0:
                     queue.append(child)
+
+        if len(ordering) != len(self.operators):
+            raise ValueError(
+                "Cycle detected in execution DAG."
+            )
 
         return ordering
