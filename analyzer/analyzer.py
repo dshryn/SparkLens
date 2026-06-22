@@ -5,7 +5,8 @@ from analyzer.extractor import FormattedPlanExtractor
 from analyzer.normalizer import PlanNormalizer
 from analyzer.parser import PlanParser
 
-from models.analysis_report import AnalysisReport
+from models import parsed_plan
+from models.analysis_result import AnalysisResult
 
 from rules.aqe_rules import AQERule
 from rules.aggregation_rules import AggregationRule
@@ -18,6 +19,7 @@ from rules.pipeline_rules import PipelineRule
 from rules.shuffle_rules import ShuffleRule
 from rules.sort_rules import SortRule
 from rules.stage_rules import StageRule
+from visualization import dag
 
 
 class SparkAnalyzer:
@@ -44,7 +46,7 @@ class SparkAnalyzer:
     def analyze(
         self,
         dataframe,
-    ) -> AnalysisReport:
+    ) -> AnalysisResult:
         """
         Analyze a Spark DataFrame.
 
@@ -63,7 +65,7 @@ class SparkAnalyzer:
     def analyze_plan(
         self,
         plan: str,
-    ) -> AnalysisReport:
+    ) -> AnalysisResult:
         """
         Analyze an already extracted Spark execution plan.
 
@@ -82,8 +84,17 @@ class SparkAnalyzer:
             parsed_plan
         )
 
-        return self._rule_engine.run(
+        report = self._rule_engine.run(
             dag
+        )
+        parsed_plan = self._parser.parse(normalized_plan)
+
+        print(parsed_plan.operators)
+        print(parsed_plan.edges)
+
+        return AnalysisResult(
+            dag=dag,
+            report=report,
         )
 
     @staticmethod
