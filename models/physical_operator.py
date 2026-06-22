@@ -32,3 +32,11 @@ class PhysicalOperator(BaseModel):
     tags: list[str] = field(default_factory=list)
 
     execution_time_ms: float | None = None
+
+@property
+def is_leaf(self) -> bool:
+    return len(self.children) == 0
+
+@property
+def is_shuffle(self) -> bool:
+    return "shuffle" in {tag.lower() for tag in self.tags}
