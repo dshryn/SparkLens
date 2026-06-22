@@ -5,7 +5,6 @@ from analyzer.extractor import FormattedPlanExtractor
 from analyzer.normalizer import PlanNormalizer
 from analyzer.parser import PlanParser
 
-from models import parsed_plan
 from models.analysis_result import AnalysisResult
 
 from rules.aqe_rules import AQERule
@@ -19,7 +18,6 @@ from rules.pipeline_rules import PipelineRule
 from rules.shuffle_rules import ShuffleRule
 from rules.sort_rules import SortRule
 from rules.stage_rules import StageRule
-from visualization import dag
 
 
 class SparkAnalyzer:
