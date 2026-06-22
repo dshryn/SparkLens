@@ -10,7 +10,7 @@ from .enums import TransformationType
 @dataclass(slots=True)
 class PhysicalOperator(BaseModel):
     """
-    Represents one node in a Spark Physical Execution Plan.
+    Represents a single operator in a Spark Physical Execution Plan.
     """
 
     operator_id: int
@@ -21,22 +21,30 @@ class PhysicalOperator(BaseModel):
 
     transformation: TransformationType
 
-    depth: int
+    depth: int = 0
 
     children: list[int] = field(default_factory=list)
 
-    metrics: dict[str, float] = field(default_factory=dict)
+    inputs: list[str] = field(default_factory=list)
+
+    outputs: list[str] = field(default_factory=list)
+
+    arguments: list[str] = field(default_factory=list)
 
     metadata: dict[str, str] = field(default_factory=dict)
+
+    metrics: dict[str, float] = field(default_factory=dict)
 
     tags: list[str] = field(default_factory=list)
 
     execution_time_ms: float | None = None
 
-@property
-def is_leaf(self) -> bool:
-    return len(self.children) == 0
+    @property
+    def is_leaf(self) -> bool:
+        return len(self.children) == 0
 
-@property
-def is_shuffle(self) -> bool:
-    return "shuffle" in {tag.lower() for tag in self.tags}
+    @property
+    def is_shuffle(self) -> bool:
+        return self.operator_type in {
+            OperatorType.EXCHANGE,
+        }
