@@ -85,7 +85,6 @@ class SparkAnalyzer:
         report = self._rule_engine.run(
             dag
         )
-        parsed_plan = self._parser.parse(normalized_plan)
 
         return AnalysisResult(
             dag=dag,

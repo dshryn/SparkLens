@@ -2,7 +2,7 @@
 
 ## Executive Summary
 
-Test summary
+AI explanation not generated.
 
 ## Findings
 
@@ -151,10 +151,6 @@ Severity: **Low**
 
 A pipeline containing 4 operators executes without an intermediate shuffle.
 
-## Recommendations
-
-- Test recommendation
-
 ## Execution Overview
 
 Operators: 23
@@ -164,4 +160,4 @@ Leaf Nodes: 2
 
 ## AI Explanation
 
-Test explanation
+CLI currently runs deterministic analysis only.
