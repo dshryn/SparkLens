@@ -5,7 +5,15 @@ from dotenv import load_dotenv
 from ai.explainer import Explainer
 from ai.models import AIConfig
 from ai.providers.gemini_provider import GeminiProvider
+
 from analyzer.analyzer import SparkAnalyzer
+
+from report import (
+    ReportGenerator,
+    MarkdownRenderer,
+    HTMLRenderer,
+)
+
 from tests.utils import load_sample_plan
 
 load_dotenv()
@@ -35,3 +43,22 @@ def test_ai_pipeline():
     assert explanation.summary
     assert explanation.explanation
     assert explanation.recommendations
+
+    report = ReportGenerator().generate(
+        analysis,
+        explanation,
+    )
+
+    markdown = MarkdownRenderer().render(
+        report
+    )
+
+    html = HTMLRenderer().render(
+        report
+    )
+
+    assert markdown
+    assert html
+
+    assert "SparkLens Analysis Report" in markdown
+    assert "<html>" in html

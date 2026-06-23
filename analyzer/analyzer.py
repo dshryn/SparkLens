@@ -87,9 +87,6 @@ class SparkAnalyzer:
         )
         parsed_plan = self._parser.parse(normalized_plan)
 
-        print(parsed_plan.operators)
-        print(parsed_plan.edges)
-
         return AnalysisResult(
             dag=dag,
             report=report,
