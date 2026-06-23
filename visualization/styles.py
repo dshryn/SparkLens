@@ -15,8 +15,8 @@ class GraphStyle:
         Severity.CRITICAL: "#EF4444",
     }
 
-    DEFAULT_NODE_SIZE = 1800
-    HIGHLIGHT_NODE_SIZE = 2400
+    DEFAULT_NODE_SIZE = 1000
+    HIGHLIGHT_NODE_SIZE = 1400
 
     @classmethod
     def node_color(cls, severity: Severity | None) -> str:

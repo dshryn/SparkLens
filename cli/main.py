@@ -1,20 +1,31 @@
 from pathlib import Path
 import argparse
+import os
+
+from dotenv import load_dotenv
 
 from analyzer.analyzer import SparkAnalyzer
 
-from report import (
-    ReportGenerator,
-    MarkdownRenderer,
-    HTMLRenderer,
-)
-
+from ai.explainer import Explainer
+from ai.models import AIConfig
 from ai.models import AIExplanation
+from ai.providers.gemini_provider import GeminiProvider
+
+from report.generator import ReportGenerator
+from report.markdown import MarkdownRenderer
+from report.html import HTMLRenderer
+
+from visualization.dag import DAGVisualizer
+
+
+load_dotenv()
 
 
 def analyze_command(
     plan_file: str,
+    use_ai: bool,
 ) -> None:
+
     plan_path = Path(plan_file)
 
     if not plan_path.exists():
@@ -33,15 +44,51 @@ def analyze_command(
         plan
     )
 
-    explanation = AIExplanation(
-        summary="AI explanation not generated.",
-        explanation=(
-            "CLI currently runs deterministic "
-            "analysis only."
-        ),
-        recommendations=[],
-        model="none",
+    visualizer = DAGVisualizer()
+
+    visualizer.save(
+        analysis.dag,
+        analysis.report,
+        "dag.png",
     )
+
+    if use_ai:
+
+        api_key = os.getenv(
+            "GEMINI_API_KEY"
+        )
+
+        if not api_key:
+            print(
+                "GEMINI_API_KEY not found."
+            )
+            return
+
+        provider = GeminiProvider(
+            AIConfig(
+                api_key=api_key,
+            )
+        )
+
+        explainer = Explainer(
+            provider
+        )
+
+        explanation = explainer.explain(
+            analysis
+        )
+
+    else:
+
+        explanation = AIExplanation(
+            summary="AI explanation not generated.",
+            explanation=(
+                "CLI currently runs deterministic "
+                "analysis only."
+            ),
+            recommendations=[],
+            model="none",
+        )
 
     report = ReportGenerator().generate(
         analysis,
@@ -58,11 +105,13 @@ def analyze_command(
         "report.html",
     )
 
+    print("Generated dag.png")
     print("Generated report.md")
     print("Generated report.html")
 
 
 def main():
+
     parser = argparse.ArgumentParser(
         prog="sparklens",
     )
@@ -79,12 +128,20 @@ def main():
         "plan_file"
     )
 
+    analyze_parser.add_argument(
+        "--ai",
+        action="store_true",
+    )
+
     args = parser.parse_args()
 
     if args.command == "analyze":
+
         analyze_command(
-            args.plan_file
+            args.plan_file,
+            args.ai,
         )
+
         return
 
     parser.print_help()

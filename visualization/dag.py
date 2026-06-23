@@ -2,6 +2,7 @@
 
 from models.analysis_report import AnalysisReport
 from models.execution_dag import ExecutionDAG
+
 from visualization.graph_builder import GraphBuilder
 from visualization.renderer import GraphRenderer
 
@@ -18,9 +19,27 @@ class DAGVisualizer:
         dag: ExecutionDAG,
         report: AnalysisReport,
     ) -> None:
-        """
-        Builds and renders an execution graph.
-        """
+        graph = self._builder.build(
+            dag,
+            report,
+        )
 
-        graph = self._builder.build(dag, report)
-        self._renderer.render(graph)
+        self._renderer.render(
+            graph
+        )
+
+    def save(
+        self,
+        dag: ExecutionDAG,
+        report: AnalysisReport,
+        path: str,
+    ) -> None:
+        graph = self._builder.build(
+            dag,
+            report,
+        )
+
+        self._renderer.save(
+            graph,
+            path,
+        )
