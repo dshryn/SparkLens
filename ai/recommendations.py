@@ -12,7 +12,8 @@ class RecommendationEngine:
 
     _RULE_RECOMMENDATIONS = {
         "BroadcastJoinRule": (
-            "Consider broadcasting the smaller dataset to reduce shuffle overhead."
+            "Spark selected a Broadcast Hash Join. Verify that the broadcast side remains "
+            "sufficiently small as data volumes grow and continues to benefit from broadcasting."
         ),
         "ShuffleRule": (
             "Review partitioning strategy to minimize expensive shuffle operations."
@@ -40,10 +41,28 @@ class RecommendationEngine:
         ),
     }
 
+    _JOIN_STRATEGY_RECOMMENDATIONS = {
+        "BroadcastHashJoin": (
+            "Spark selected a Broadcast Hash Join. "
+            "This is typically an efficient strategy when one side of the join is small. "
+            "Verify that the broadcast side remains within Spark's broadcast threshold as data grows."
+        ),
+        "SortMergeJoin": (
+            "Spark selected a Sort Merge Join. "
+            "This strategy generally incurs shuffle and sort overhead. "
+            "Review whether partitioning can be improved or whether one side of the join could be broadcast."
+        ),
+        "ShuffleHashJoin": (
+            "Spark selected a Shuffle Hash Join. "
+            "Review join-key distribution and partitioning to minimize shuffle overhead."
+        ),
+    }
+
     _SEVERITY_PRIORITY = {
-        Severity.HIGH: 0,
-        Severity.MEDIUM: 1,
-        Severity.LOW: 2,
+        Severity.CRITICAL: 0,
+        Severity.HIGH: 1,
+        Severity.MEDIUM: 2,
+        Severity.LOW: 3,
     }
 
     @classmethod
@@ -53,47 +72,75 @@ class RecommendationEngine:
 
         Recommendations are:
         - Ordered by highest finding severity.
-        - Deduplicated by rule.
+        - Deduplicated by rule and join strategy.
         - Aggregated when multiple findings originate from the same rule.
         """
 
-        grouped_findings: dict[str, list] = defaultdict(list)
+        grouped_findings: dict[tuple[str, str | None], list] = defaultdict(list)
 
         for finding in report.findings:
+
             normalized_rule = cls._normalize_rule_name(
                 finding.rule
             )
-            grouped_findings[normalized_rule].append(finding)
+
+            join_strategy = finding.metadata.get(
+                "join_strategy"
+            )
+
+            grouped_findings[
+                (
+                    normalized_rule,
+                    join_strategy,
+                )
+            ].append(finding)
 
         recommendations: list[tuple[int, str]] = []
 
-        for rule, findings in grouped_findings.items():
+        for (rule, join_strategy), findings in grouped_findings.items():
 
-            recommendation = cls._RULE_RECOMMENDATIONS.get(rule)
+            if (
+                rule == "BroadcastJoinRule"
+                and join_strategy in cls._JOIN_STRATEGY_RECOMMENDATIONS
+            ):
+                recommendation = cls._JOIN_STRATEGY_RECOMMENDATIONS[
+                    join_strategy
+                ]
+            else:
+                recommendation = cls._RULE_RECOMMENDATIONS.get(
+                    rule
+                )
 
             if recommendation is None:
                 continue
 
             highest_severity = min(
-                cls._SEVERITY_PRIORITY[finding.severity]
+                cls._SEVERITY_PRIORITY.get(
+                    finding.severity,
+                    99,
+                )
                 for finding in findings
             )
 
             count = len(findings)
 
-            if count == 1:
-                message = recommendation
-            else:
-                message = (
-                    f"{count} findings were detected by "
-                    f"{rule.removesuffix('Rule')}. "
+            if count > 1:
+
+                subject = (
+                    join_strategy
+                    if join_strategy
+                    else rule.removesuffix("Rule")
+                )
+
+                recommendation = (
+                    f"{count} {subject} findings were detected. "
                     f"{recommendation}"
                 )
 
             recommendations.append(
                 (
                     highest_severity,
-                    message,
+                    recommendation,
                 )
             )
 

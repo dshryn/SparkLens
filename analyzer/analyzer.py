@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import logging
+
 from analyzer.dag_builder import DAGBuilder
 from analyzer.extractor import FormattedPlanExtractor
 from analyzer.normalizer import PlanNormalizer
@@ -18,6 +20,9 @@ from rules.pipeline_rules import PipelineRule
 from rules.shuffle_rules import ShuffleRule
 from rules.sort_rules import SortRule
 from rules.stage_rules import StageRule
+
+
+logger = logging.getLogger(__name__)
 
 
 class SparkAnalyzer:
@@ -47,13 +52,17 @@ class SparkAnalyzer:
     ) -> AnalysisResult:
         """
         Analyze a Spark DataFrame.
-
-        The extractor obtains the formatted execution plan from the
-        DataFrame before the remaining analysis pipeline is executed.
         """
+
+        logger.info("Starting DataFrame analysis.")
 
         plan = self._extractor.extract(
             dataframe
+        )
+
+        logger.info(
+            "Execution plan extracted (%d characters).",
+            len(plan),
         )
 
         return self.analyze_plan(
@@ -66,30 +75,55 @@ class SparkAnalyzer:
     ) -> AnalysisResult:
         """
         Analyze an already extracted Spark execution plan.
-
-        Useful for unit tests and sample execution plans.
         """
+
+        logger.info("Starting execution plan analysis.")
 
         normalized_plan = self._normalizer.normalize(
             plan
+        )
+
+        logger.info(
+            "Plan normalized."
         )
 
         parsed_plan = self._parser.parse(
             normalized_plan
         )
 
+        logger.info(
+            "Plan parsed (%d operators, %d edges).",
+            len(parsed_plan.operators),
+            len(parsed_plan.edges),
+        )
+
         dag = self._builder.build(
             parsed_plan
+        )
+
+        logger.info(
+            "Execution DAG constructed (%d operators, %d edges).",
+            len(dag.operators),
+            len(dag.edges),
         )
 
         report = self._rule_engine.run(
             dag
         )
 
-        return AnalysisResult(
+        logger.info(
+            "Rule engine completed (%d findings).",
+            len(report.findings),
+        )
+
+        result = AnalysisResult(
             dag=dag,
             report=report,
         )
+
+        logger.info("Analysis pipeline completed successfully.")
+
+        return result
 
     @staticmethod
     def _default_rule_engine() -> RuleEngine:

@@ -10,7 +10,7 @@ Test summary
 Severity: **Low**
 Operator: **BroadcastHashJoin**
 
-Spark selected a Broadcast Hash Join for this operator.
+Spark selected a Broadcast Hash Join for this operator. This strategy is typically efficient when one side of the join is sufficiently small to broadcast.
 
 ### Shuffle Detected
 Severity: **Medium**
