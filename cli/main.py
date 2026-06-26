@@ -4,6 +4,7 @@ import os
 
 from dotenv import load_dotenv
 
+from ai.providers.retrying_provider import RetryingProvider
 from analyzer.analyzer import SparkAnalyzer
 
 from ai.explainer import Explainer
@@ -64,10 +65,14 @@ def analyze_command(
             )
             return
 
-        provider = GeminiProvider(
-            AIConfig(
-                api_key=api_key,
-            )
+        provider = RetryingProvider(
+            GeminiProvider(
+                AIConfig(
+                    api_key=api_key,
+                )
+            ),
+            max_attempts=3,
+            initial_delay=1.0,
         )
 
         explainer = Explainer(

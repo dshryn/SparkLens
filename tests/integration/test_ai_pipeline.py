@@ -1,10 +1,13 @@
 import os
 
+import pytest
 from dotenv import load_dotenv
 
+from ai.exceptions import AITransientError
 from ai.explainer import Explainer
 from ai.models import AIConfig
 from ai.providers.gemini_provider import GeminiProvider
+from ai.providers.retrying_provider import RetryingProvider
 
 from analyzer.analyzer import SparkAnalyzer
 
@@ -32,13 +35,23 @@ def test_ai_pipeline():
         load_sample_plan("broadcast_join")
     )
 
-    provider = GeminiProvider(
-        AIConfig(api_key=api_key)
+    provider = RetryingProvider(
+        GeminiProvider(
+            AIConfig(api_key=api_key)
+        )
     )
 
     explainer = Explainer(provider)
 
-    explanation = explainer.explain(analysis)
+    try:
+        explanation = explainer.explain(
+            analysis
+        )
+
+    except AITransientError:
+        pytest.skip(
+            "Gemini temporarily unavailable."
+        )
 
     assert explanation.summary
     assert explanation.explanation
