@@ -14,6 +14,13 @@ class ReportSection:
     title: str
     content: str
 
+    
+@dataclass(slots=True)
+class ReportInsight:
+    category: str
+    title: str
+    description: str
+
 
 @dataclass(slots=True)
 class Report:
@@ -21,4 +28,6 @@ class Report:
     summary: str
     findings: list[ReportFinding] = field(default_factory=list)
     recommendations: list[str] = field(default_factory=list)
+    insights: list[ReportInsight] = field(default_factory=list)
     sections: list[ReportSection] = field(default_factory=list)
+

@@ -48,7 +48,7 @@ class RetryingProvider(AIProvider):
             try:
                 return self._provider.generate(prompt)
 
-            except AITransientError as exc:
+            except AITransientError:
                 if attempt == self._max_attempts:
                     raise
 
