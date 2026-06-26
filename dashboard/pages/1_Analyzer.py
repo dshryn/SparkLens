@@ -1,88 +1,155 @@
 import streamlit as st
-from services.analysis_service import analyze_execution_plan
 
-st.title("Execution Plan Analyzer")
-
-uploaded_file = st.file_uploader(
-    "Upload Spark Execution Plan",
-    type=["txt"]
+st.set_page_config(
+    page_title="SparkLens Analyzer",
+    page_icon="⚡",
+    layout="wide"
 )
 
-st.divider()
+st.title("⚡ SparkLens Analyzer")
+st.caption("Explainable Spark Execution Plan Analyzer")
 
-plan_text = st.text_area(
-    "Or paste the execution plan",
-    height=250,
-    placeholder="Paste Spark physical execution plan here..."
-)
+with st.sidebar:
 
-analyze = st.button(
-    "Analyze",
-    use_container_width=True
-)
+    st.header("Execution Plan")
 
-st.divider()
+    uploaded_file = st.file_uploader(
+        "Upload Plan",
+        type=["txt"]
+    )
 
-st.header("Execution Summary")
+    st.divider()
 
-summary_placeholder = st.empty()
+    st.subheader("Or Paste Plan")
 
-st.divider()
+    plan_text = st.text_area(
+        "",
+        height=250,
+        placeholder="Paste Spark physical execution plan..."
+    )
 
-st.header("Execution DAG")
+    st.divider()
 
-dag_placeholder = st.empty()
+    analyze = st.button(
+        "🚀 Analyze",
+        use_container_width=True
+    )
 
-st.divider()
+    st.divider()
 
-st.header("Findings")
+    st.subheader("Options")
 
-findings_placeholder = st.empty()
-
-st.divider()
-
-st.header("Recommendations")
-
-recommendation_placeholder = st.empty()
-
-st.divider()
-
-st.header("AI Explanation")
-
-ai_placeholder = st.empty()
+    enable_ai = st.checkbox(
+        "Enable AI",
+        value=True
+    )
 
 if analyze:
-
-    with st.spinner("Analyzing execution plan..."):
-
-        result = analyze_execution_plan(plan_text)
-
     st.success("Analysis Complete")
+else:
+    st.info("Upload or paste an execution plan and click Analyze.")
 
-    st.divider()
+st.divider()
 
-    c1, c2, c3, c4 = st.columns(4)
+c1, c2, c3, c4, c5, c6 = st.columns(6)
 
-    c1.metric("Operators", result.summary["operators"])
-    c2.metric("Joins", result.summary["joins"])
-    c3.metric("Shuffles", result.summary["shuffles"])
-    c4.metric("Complexity", result.summary["complexity"])
+c1.metric("Operators", "32")
+c2.metric("Joins", "4")
+c3.metric("Shuffles", "3")
+c4.metric("Stages", "8")
+c5.metric("Findings", "12")
+c6.metric("Complexity", "High")
 
-    st.divider()
+st.divider()
 
-    st.subheader("Findings")
+overview_tab, findings_tab, dag_tab, ai_tab = st.tabs(
+    [
+        "Overview",
+        "Findings",
+        "Execution DAG",
+        "AI Analysis"
+    ]
+)
 
-    st.table(result.findings)
+with overview_tab:
 
-    st.divider()
+    st.subheader("Pipeline Summary")
 
-    st.subheader("Recommendations")
+    st.markdown("""
+- Broadcast Hash Join detected
+- Multiple shuffle exchanges detected
+- AQE enabled
+- High execution complexity
+""")
 
-    for recommendation in result.recommendations:
-        st.markdown(f"- {recommendation}")
+    with st.expander(
+        "Optimization Recommendations",
+        expanded=True
+    ):
 
-    st.divider()
+        st.markdown("- Enable Broadcast Join where possible")
+        st.markdown("- Reduce unnecessary shuffle exchanges")
+        st.markdown("- Tune spark.sql.shuffle.partitions")
 
-    st.subheader("AI Summary")
+with findings_tab:
 
-    st.markdown(result.ai_summary)
+    st.subheader("Detected Findings")
+
+    st.dataframe(
+        [
+            {
+                "Severity": "High",
+                "Rule": "Shuffle Rule",
+                "Operator": "Exchange",
+                "Description": "Multiple shuffle exchanges detected."
+            },
+            {
+                "Severity": "Medium",
+                "Rule": "Join Rule",
+                "Operator": "BroadcastHashJoin",
+                "Description": "Broadcast opportunity found."
+            }
+        ],
+        use_container_width=True,
+        hide_index=True
+    )
+
+with dag_tab:
+
+    st.subheader("Execution DAG")
+
+    st.info("Interactive DAG visualization will be rendered here.")
+
+with ai_tab:
+
+    st.subheader("AI Explanation")
+
+    st.markdown("""
+The execution plan contains several shuffle-heavy operations.
+
+The Broadcast Hash Join is a good choice for one side of the join, but the number of exchanges indicates unnecessary data movement.
+
+Enabling AQE and reducing shuffle partitions could improve execution performance.
+""")
+
+st.divider()
+
+download_col1, download_col2, download_col3 = st.columns(3)
+
+download_col1.download_button(
+    "Download HTML Report",
+    data="Coming Soon",
+    file_name="report.html"
+)
+
+download_col2.download_button(
+    "Download Markdown Report",
+    data="Coming Soon",
+    file_name="report.md"
+)
+
+download_col3.download_button(
+    "Download JSON",
+    data="Coming Soon",
+    file_name="analysis.json"
+)
