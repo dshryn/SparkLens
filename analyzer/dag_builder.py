@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from models.execution_dag import ExecutionDAG
 from models.parsed_plan import ParsedPlan
+from visualization import dag
 
 
 class DAGBuilder:

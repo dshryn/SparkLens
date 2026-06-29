@@ -184,9 +184,23 @@ A pipeline containing 4 operators executes without an intermediate shuffle.
 
 Operators: 23
 Edges: 22
-Findings: 29
 Root Nodes: 1
 Leaf Nodes: 2
+Findings: 29
+
+## Execution Statistics
+
+Stages: 11
+Joins: 1
+Broadcast Joins: 1
+Shuffles: 6
+Exchanges: 6
+Aggregations: 3
+Sorts: 1
+Filters: 0
+Scans: 0
+Max Depth: 0
+Complexity: VERY_HIGH (57.75)
 
 ## AI Explanation
 

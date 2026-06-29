@@ -30,6 +30,7 @@ class ReportGenerator:
             insights=self._build_insights(explanation),
             sections=[
                 self._build_overview(analysis),
+                self._build_statistics(analysis),
                 self._build_ai_explanation(explanation),
             ],
         )
@@ -73,14 +74,44 @@ class ReportGenerator:
         Builds the execution overview section.
         """
 
+        stats = analysis.statistics
+
         return ReportSection(
             title="Execution Overview",
             content=(
-                f"Operators: {len(analysis.dag.operators)}\n"
-                f"Edges: {len(analysis.dag.edges)}\n"
-                f"Findings: {len(analysis.report.findings)}\n"
-                f"Root Nodes: {len(analysis.dag.root_nodes())}\n"
-                f"Leaf Nodes: {len(analysis.dag.leaf_nodes())}"
+                f"Operators: {stats.operator_count}\n"
+                f"Edges: {stats.edge_count}\n"
+                f"Root Nodes: {stats.root_node_count}\n"
+                f"Leaf Nodes: {stats.leaf_node_count}\n"
+                f"Findings: {len(analysis.report.findings)}"
+            ),
+        )
+
+    def _build_statistics(
+        self,
+        analysis: AnalysisResult,
+    ) -> ReportSection:
+        """
+        Builds the execution statistics section.
+        """
+
+        stats = analysis.statistics
+
+        return ReportSection(
+            title="Execution Statistics",
+            content=(
+                f"Stages: {stats.stage_count}\n"
+                f"Joins: {stats.join_count}\n"
+                f"Broadcast Joins: {stats.broadcast_join_count}\n"
+                f"Shuffles: {stats.shuffle_count}\n"
+                f"Exchanges: {stats.exchange_count}\n"
+                f"Aggregations: {stats.aggregate_count}\n"
+                f"Sorts: {stats.sort_count}\n"
+                f"Filters: {stats.filter_count}\n"
+                f"Scans: {stats.scan_count}\n"
+                f"Max Depth: {stats.max_depth}\n"
+                f"Complexity: {stats.complexity} "
+                f"({stats.complexity_score})"
             ),
         )
 
