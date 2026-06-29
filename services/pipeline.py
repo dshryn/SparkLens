@@ -1,6 +1,7 @@
-from dataclasses import dataclass
-from pathlib import Path
+from __future__ import annotations
+
 import os
+from dataclasses import dataclass
 
 from dotenv import load_dotenv
 
@@ -12,36 +13,38 @@ from ai.models import AIExplanation
 from ai.providers.gemini_provider import GeminiProvider
 from ai.providers.retrying_provider import RetryingProvider
 
-from report.generator import ReportGenerator
-from report.html import HTMLRenderer
-from report.markdown import MarkdownRenderer
+from models.analysis_result import AnalysisResult
 
-from visualization.dag import DAGVisualizer
+from report.generator import ReportGenerator
+from report.models import Report
 
 
 load_dotenv()
 
 
-@dataclass
+@dataclass(slots=True)
 class PipelineResult:
-
-    analysis: object
-
+    analysis: AnalysisResult
     explanation: AIExplanation
-
-    report: object
-
-    dag_path: str
-
-    markdown_path: str
-
-    html_path: str
+    report: Report
 
 
 class AnalysisPipeline:
+    """
+    High-level SparkLens orchestration.
 
-    def __init__(self):
+    Responsible for:
+    - Deterministic analysis
+    - AI explanation (optional)
+    - Report generation
 
+    NOT responsible for:
+    - CLI
+    - Streamlit
+    - Saving files
+    """
+
+    def __init__(self) -> None:
         self._analyzer = SparkAnalyzer()
 
     def run(
@@ -54,51 +57,54 @@ class AnalysisPipeline:
             plan
         )
 
-        DAGVisualizer().save(
-            analysis.dag,
-            analysis.report,
-            "dag.png",
-        )
-
         if enable_ai:
 
             api_key = os.getenv(
                 "GEMINI_API_KEY"
             )
 
-            if not api_key:
-
-                explanation = AIExplanation(
-                    summary="No API key configured.",
-                    explanation="Gemini API key not found.",
-                    recommendations=[],
-                    model="none",
-                )
-
-            else:
+            if api_key:
 
                 provider = RetryingProvider(
                     GeminiProvider(
                         AIConfig(
-                            api_key=api_key
+                            api_key=api_key,
                         )
                     ),
                     max_attempts=3,
                     initial_delay=1.0,
                 )
 
-                explanation = Explainer(
+                explainer = Explainer(
                     provider
-                ).explain(
+                )
+
+                explanation = explainer.explain(
                     analysis
+                )
+
+            else:
+
+                explanation = AIExplanation(
+                    summary="Gemini API key not configured.",
+                    explanation=(
+                        "Deterministic analysis completed successfully, "
+                        "but AI explanation could not be generated."
+                    ),
+                    recommendations=[],
+                    insights=[],
+                    model="none",
                 )
 
         else:
 
             explanation = AIExplanation(
-                summary="AI disabled.",
-                explanation="Only deterministic analysis executed.",
+                summary="AI explanation disabled.",
+                explanation=(
+                    "Only deterministic analysis was executed."
+                ),
                 recommendations=[],
+                insights=[],
                 model="none",
             )
 
@@ -107,21 +113,8 @@ class AnalysisPipeline:
             explanation,
         )
 
-        MarkdownRenderer().save(
-            report,
-            "report.md",
-        )
-
-        HTMLRenderer().save(
-            report,
-            "report.html",
-        )
-
         return PipelineResult(
             analysis=analysis,
             explanation=explanation,
             report=report,
-            dag_path="dag.png",
-            markdown_path="report.md",
-            html_path="report.html",
         )

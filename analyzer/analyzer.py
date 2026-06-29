@@ -8,6 +8,12 @@ from analyzer.normalizer import PlanNormalizer
 from analyzer.parser import PlanParser
 
 from models.analysis_result import AnalysisResult
+from models.execution_dag import ExecutionDAG
+from models.execution_statistics import ExecutionStatistics
+from models.analysis_report import AnalysisReport
+from models.enums import OperatorType
+from models.enums import Severity
+from models.enums import TransformationType
 
 from rules.aqe_rules import AQERule
 from rules.aggregation_rules import AggregationRule
@@ -116,14 +122,183 @@ class SparkAnalyzer:
             len(report.findings),
         )
 
+        statistics = self._compute_statistics(
+            dag,
+            report,
+        )
+
         result = AnalysisResult(
             dag=dag,
             report=report,
+            statistics=statistics,
         )
 
         logger.info("Analysis pipeline completed successfully.")
 
         return result
+
+    def _compute_statistics(
+        self,
+        dag: ExecutionDAG,
+        report: AnalysisReport,
+    ) -> ExecutionStatistics:
+
+        stats = ExecutionStatistics()
+
+        stats.operator_count = len(dag.operators)
+        stats.edge_count = len(dag.edges)
+
+        stats.root_node_count = len(
+            dag.root_nodes()
+        )
+
+        stats.leaf_node_count = len(
+            dag.leaf_nodes()
+        )
+
+        operator_types: dict[str, int] = {}
+        transformations: dict[str, int] = {}
+        join_strategies: dict[str, int] = {}
+
+        max_depth = 0
+
+        for operator in dag.operators.values():
+
+            max_depth = max(
+                max_depth,
+                operator.depth,
+            )
+
+            operator_name = operator.operator_type.value
+
+            operator_types[operator_name] = (
+                operator_types.get(
+                    operator_name,
+                    0,
+                )
+                + 1
+            )
+
+            transformation = (
+                operator.transformation.value
+            )
+
+            transformations[transformation] = (
+                transformations.get(
+                    transformation,
+                    0,
+                )
+                + 1
+            )
+
+            match operator.operator_type:
+
+                case OperatorType.EXCHANGE:
+                    stats.exchange_count += 1
+                    stats.shuffle_count += 1
+
+                case OperatorType.BROADCAST_EXCHANGE:
+                    stats.exchange_count += 1
+
+                case OperatorType.BROADCAST_HASH_JOIN:
+                    stats.join_count += 1
+                    stats.broadcast_join_count += 1
+
+                    join_strategies[
+                        operator.operator_type.value
+                    ] = (
+                        join_strategies.get(
+                            operator.operator_type.value,
+                            0,
+                        )
+                        + 1
+                    )
+
+                case (
+                    OperatorType.SORT_MERGE_JOIN
+                    | OperatorType.SHUFFLE_HASH_JOIN
+                ):
+                    stats.join_count += 1
+
+                    join_strategies[
+                        operator.operator_type.value
+                    ] = (
+                        join_strategies.get(
+                            operator.operator_type.value,
+                            0,
+                        )
+                        + 1
+                    )
+
+                case (
+                    OperatorType.HASH_AGGREGATE
+                    | OperatorType.SORT_AGGREGATE
+                ):
+                    stats.aggregate_count += 1
+
+                case OperatorType.SORT:
+                    stats.sort_count += 1
+
+                case OperatorType.FILTER:
+                    stats.filter_count += 1
+
+                case OperatorType.FILE_SCAN:
+                    stats.scan_count += 1
+
+            if (
+                operator.transformation
+                == TransformationType.WIDE
+            ):
+                stats.stage_count += 1
+
+        stats.max_depth = max_depth
+
+        stats.operator_types = operator_types
+        stats.transformations = transformations
+        stats.join_strategies = join_strategies
+
+        for finding in report.findings:
+
+            match finding.severity:
+
+                case Severity.CRITICAL:
+                    stats.critical_findings += 1
+
+                case Severity.HIGH:
+                    stats.high_findings += 1
+
+                case Severity.MEDIUM:
+                    stats.medium_findings += 1
+
+                case Severity.LOW:
+                    stats.low_findings += 1
+
+        score = (
+            stats.operator_count * 0.25
+            + stats.join_count * 4
+            + stats.shuffle_count * 5
+            + stats.exchange_count * 3
+            + stats.max_depth
+        )
+
+        stats.complexity_score = round(
+            score,
+            2,
+        )
+
+        if score < 10:
+            stats.complexity = "LOW"
+
+        elif score < 20:
+            stats.complexity = "MEDIUM"
+
+        elif score < 35:
+            stats.complexity = "HIGH"
+
+        else:
+            stats.complexity = "VERY_HIGH"
+
+        return stats
 
     @staticmethod
     def _default_rule_engine() -> RuleEngine:

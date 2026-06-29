@@ -1,18 +1,10 @@
 from pathlib import Path
 import argparse
-import os
 
 from dotenv import load_dotenv
 
-from ai.providers.retrying_provider import RetryingProvider
-from analyzer.analyzer import SparkAnalyzer
+from services.pipeline import AnalysisPipeline
 
-from ai.explainer import Explainer
-from ai.models import AIConfig
-from ai.models import AIExplanation
-from ai.providers.gemini_provider import GeminiProvider
-
-from report.generator import ReportGenerator
 from report.markdown import MarkdownRenderer
 from report.html import HTMLRenderer
 
@@ -30,83 +22,37 @@ def analyze_command(
     plan_path = Path(plan_file)
 
     if not plan_path.exists():
+
         print(
             f"Plan file not found: {plan_path}"
         )
+
         return
 
     plan = plan_path.read_text(
         encoding="utf-8"
     )
 
-    analyzer = SparkAnalyzer()
+    pipeline = AnalysisPipeline()
 
-    analysis = analyzer.analyze_plan(
-        plan
+    result = pipeline.run(
+        plan,
+        enable_ai=use_ai,
     )
 
-    visualizer = DAGVisualizer()
-
-    visualizer.save(
-        analysis.dag,
-        analysis.report,
+    DAGVisualizer().save(
+        result.analysis.dag,
+        result.analysis.report,
         "dag.png",
     )
 
-    if use_ai:
-
-        api_key = os.getenv(
-            "GEMINI_API_KEY"
-        )
-
-        if not api_key:
-            print(
-                "GEMINI_API_KEY not found."
-            )
-            return
-
-        provider = RetryingProvider(
-            GeminiProvider(
-                AIConfig(
-                    api_key=api_key,
-                )
-            ),
-            max_attempts=3,
-            initial_delay=1.0,
-        )
-
-        explainer = Explainer(
-            provider
-        )
-
-        explanation = explainer.explain(
-            analysis
-        )
-
-    else:
-
-        explanation = AIExplanation(
-            summary="AI explanation not generated.",
-            explanation=(
-                "CLI currently runs deterministic "
-                "analysis only."
-            ),
-            recommendations=[],
-            model="none",
-        )
-
-    report = ReportGenerator().generate(
-        analysis,
-        explanation,
-    )
-
     MarkdownRenderer().save(
-        report,
+        result.report,
         "report.md",
     )
 
     HTMLRenderer().save(
-        report,
+        result.report,
         "report.html",
     )
 

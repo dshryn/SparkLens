@@ -1,41 +1,18 @@
-from dataclasses import dataclass
+from services.pipeline import AnalysisPipeline, PipelineResult
 
 
-@dataclass
-class DashboardResult:
-    summary: dict
-    findings: list
-    recommendations: list
-    ai_summary: str
+def analyze_execution_plan(
+    plan_text: str,
+    enable_ai: bool = True,
+) -> PipelineResult:
+    """
+    Executes the complete SparkLens analysis pipeline and returns
+    the PipelineResult for the Streamlit dashboard.
+    """
 
+    pipeline = AnalysisPipeline()
 
-def analyze_execution_plan(plan_text: str) -> DashboardResult:
-    return DashboardResult(
-        summary={
-            "operators": 32,
-            "joins": 4,
-            "shuffles": 3,
-            "complexity": "High"
-        },
-        findings=[
-            {
-                "severity": "High",
-                "rule": "Shuffle Rule",
-                "description": "Multiple shuffle exchanges detected."
-            },
-            {
-                "severity": "Medium",
-                "rule": "Broadcast Join Rule",
-                "description": "Broadcast join opportunity found."
-            }
-        ],
-        recommendations=[
-            "Enable AQE.",
-            "Consider broadcasting the smaller table.",
-            "Reduce unnecessary shuffle operations."
-        ],
-        ai_summary="""
-The execution plan contains several shuffle-heavy operations.
-Optimizing join strategies and enabling AQE may significantly improve performance.
-"""
+    return pipeline.run(
+        plan=plan_text,
+        enable_ai=enable_ai,
     )
