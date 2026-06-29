@@ -1,6 +1,6 @@
 import streamlit as st
 
-from dashboard.services.analysis_service import (
+from ui_services.analysis_service import (
     analyze_execution_plan,
 )
 
