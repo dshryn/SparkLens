@@ -79,6 +79,7 @@ if analyze:
                 plan_text=plan,
                 enable_ai=enable_ai,
             )
+            st.session_state["analysis_result"] = result
 
         st.success("Analysis Complete")
 

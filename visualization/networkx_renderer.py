@@ -8,11 +8,12 @@ from networkx.drawing.nx_pydot import graphviz_layout
 
 from models.enums import Severity
 
+from visualization.base_renderer import BaseRenderer
 from visualization.models import GraphModel
 from visualization.styles import GraphStyle
 
 
-class GraphRenderer:
+class GraphRenderer(BaseRenderer):
     """Renders a GraphModel using NetworkX."""
 
     def _draw(
@@ -26,12 +27,8 @@ class GraphRenderer:
             dag.add_node(
                 node.id,
                 label=f"{node.label[:12]}\n#{node.id}",
-                color=GraphStyle.node_color(
-                    node.severity
-                ),
-                size=GraphStyle.node_size(
-                    node.highlighted
-                ),
+                color=GraphStyle.node_color(node.severity),
+                size=GraphStyle.node_size(node.highlighted),
             )
 
         for edge in graph.edges:
@@ -50,26 +47,14 @@ class GraphRenderer:
                 dag,
                 seed=42,
             )
-        
 
-        colors = [
-            dag.nodes[node]["color"]
-            for node in dag.nodes
-        ]
+        colors = [dag.nodes[node]["color"] for node in dag.nodes]
 
-        sizes = [
-            dag.nodes[node]["size"]
-            for node in dag.nodes
-        ]
+        sizes = [dag.nodes[node]["size"] for node in dag.nodes]
 
-        labels = {
-            node: dag.nodes[node]["label"]
-            for node in dag.nodes
-        }
+        labels = {node: dag.nodes[node]["label"] for node in dag.nodes}
 
-        plt.figure(
-            figsize=(16,9)
-        )
+        plt.figure(figsize=(16, 9))
 
         nx.draw_networkx_nodes(
             dag,
