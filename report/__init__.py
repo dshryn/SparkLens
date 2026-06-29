@@ -7,3 +7,9 @@ __all__ = [
     "MarkdownRenderer",
     "HTMLRenderer",
 ]
+
+from .exporters import (
+    report_to_html,
+    report_to_markdown,
+    pipeline_to_json,
+)

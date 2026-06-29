@@ -2,6 +2,11 @@ from __future__ import annotations
 
 import streamlit as st
 
+from report.exporters import (
+    pipeline_to_json,
+    report_to_html,
+    report_to_markdown,
+)
 from services.pipeline import PipelineResult
 
 
@@ -145,32 +150,42 @@ def render_ai(
         st.subheader("Insights")
 
         for insight in explanation.insights:
-            st.markdown(f"**{insight.title}**\n\n" f"{insight.description}")
+            st.markdown(f"**{insight.title}**\n\n{insight.description}")
 
 
 def render_downloads(
     result: PipelineResult,
 ) -> None:
     """
-    Placeholder download buttons.
+    Render report download buttons.
     """
+
+    html_report = report_to_html(result.report)
+    markdown_report = report_to_markdown(result.report)
+    json_report = pipeline_to_json(result)
 
     c1, c2, c3 = st.columns(3)
 
     c1.download_button(
-        "Download HTML Report",
-        data="Coming Soon",
-        file_name="report.html",
+        label="Download HTML Report",
+        data=html_report,
+        file_name="sparklens_report.html",
+        mime="text/html",
+        use_container_width=True,
     )
 
     c2.download_button(
-        "Download Markdown Report",
-        data="Coming Soon",
-        file_name="report.md",
+        label="Download Markdown Report",
+        data=markdown_report,
+        file_name="sparklens_report.md",
+        mime="text/markdown",
+        use_container_width=True,
     )
 
     c3.download_button(
-        "Download JSON",
-        data="Coming Soon",
-        file_name="analysis.json",
+        label="Download JSON",
+        data=json_report,
+        file_name="sparklens_analysis.json",
+        mime="application/json",
+        use_container_width=True,
     )

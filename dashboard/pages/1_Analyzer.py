@@ -22,7 +22,6 @@ st.set_page_config(
 st.title("⚡ SparkLens Analyzer")
 st.caption("Explainable Spark Execution Plan Analyzer")
 
-
 with st.sidebar:
 
     st.header("Execution Plan")
@@ -55,40 +54,35 @@ with st.sidebar:
     )
 
 
-result = None
-
 if analyze:
 
     if uploaded_file is not None:
-
         plan = uploaded_file.read().decode("utf-8")
-
     else:
-
         plan = plan_text.strip()
 
     if not plan:
-
         st.error("Please upload or paste an execution plan.")
-
     else:
-
         with st.spinner("Analyzing execution plan..."):
 
             result = analyze_execution_plan(
                 plan_text=plan,
                 enable_ai=enable_ai,
             )
+
             st.session_state["analysis_result"] = result
 
         st.success("Analysis Complete")
 
-else:
+
+result = st.session_state.get("analysis_result")
+
+if result is None:
 
     st.info("Upload or paste an execution plan and click Analyze.")
 
-
-if result is not None:
+else:
 
     st.divider()
 

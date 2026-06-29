@@ -32,7 +32,7 @@ SparkLens is an offline analysis framework for Apache Spark execution plans.
 
 ---
 
-👈 Use the sidebar to begin analyzing a Spark execution plan.
+Use the sidebar to begin analyzing a Spark execution plan.
 """)
 
 st.info("Current Version: v0.3")
