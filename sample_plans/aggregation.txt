@@ -1,0 +1,54 @@
+== Physical Plan == AdaptiveSparkPlan (18) +- == Initial Plan ==
+PhotonResultStage (17) +- PhotonColumnarToRow (16) +- PhotonProject (15)
++- PhotonGroupingAgg (14) +- PhotonShuffleExchangeSource (13) +-
+PhotonShuffleMapStage (12) +- PhotonShuffleExchangeSink (11) +-
+PhotonGroupingAgg (10) +- PhotonProject (9) +- PhotonFilter (8) +-
+PhotonProject (7) +- PhotonRange (6)
+
+(6) PhotonRange Output [1]: [id#1000L] Arguments: Range (0, 1000000,
+    step=1, splits=16)
+
+(7) PhotonProject Input [1]: [id#1000L] Arguments: [(id#1000L % 1000) AS
+    customer_id#1001L, ((id#1000L % 500) + 100) AS amount#1002L]
+
+(8) PhotonFilter Input [2]: [customer_id#1001L, amount#1002L] Arguments:
+    (amount#1002L > 250)
+
+(9) PhotonProject Input [2]: [customer_id#1001L, amount#1002L]
+    Arguments: [customer_id#1001L, amount#1002L]
+
+(10) PhotonGroupingAgg Input [2]: [customer_id#1001L, amount#1002L]
+     Arguments: [customer_id#1001L], [partial_sum(amount#1002L) AS
+     sum#1005L, partial_count(1) AS count#1006L], [sum#1005L,
+     count#1006L], [customer_id#1001L, sum#1005L, count#1006L], false
+
+(11) PhotonShuffleExchangeSink Input [3]: [customer_id#1001L, sum#1005L,
+     count#1006L] Arguments: hashpartitioning(customer_id#1001L, 16)
+
+(12) PhotonShuffleMapStage Input [3]: [customer_id#1001L, sum#1005L,
+     count#1006L] Arguments: ENSURE_REQUIREMENTS, [id=#5101]
+
+(13) PhotonShuffleExchangeSource Input [3]: [customer_id#1001L,
+     sum#1005L, count#1006L]
+
+(14) PhotonGroupingAgg Input [3]: [customer_id#1001L, sum#1005L,
+     count#1006L] Arguments: [customer_id#1001L],
+     [finalmerge_sum(sum#1005L) AS total_amount#1007L,
+     finalmerge_count(count#1006L) AS txn_count#1008L],
+     [total_amount#1007L, txn_count#1008L], [customer_id#1001L,
+     total_amount#1007L, txn_count#1008L], true
+
+(15) PhotonProject Input [3]: [customer_id#1001L, total_amount#1007L,
+     txn_count#1008L] Arguments: [customer_id#1001L, total_amount#1007L,
+     txn_count#1008L]
+
+(16) PhotonColumnarToRow Input [3]: [customer_id#1001L,
+     total_amount#1007L, txn_count#1008L]
+
+(17) PhotonResultStage Input [3]: [customer_id#1001L,
+     total_amount#1007L, txn_count#1008L]
+
+(18) AdaptiveSparkPlan Output [3]: [customer_id#1001L,
+     total_amount#1007L, txn_count#1008L] Arguments: isFinalPlan=false
+
+== Photon Explanation == The query is fully supported by Photon.

@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from visualization.base_renderer import BaseRenderer
 from visualization.graph_builder import GraphBuilder
+from visualization.interactive_renderer import InteractiveRenderer
 from visualization.models import GraphModel
 from visualization.networkx_renderer import GraphRenderer
 
@@ -79,6 +80,26 @@ class DAGVisualizer:
             path,
         )
 
+    def to_html(
+        self,
+        dag: ExecutionDAG,
+        report: AnalysisReport,
+    ) -> str:
+        """
+        Returns the interactive DAG as an HTML string.
+        """
+
+        graph = self.build(
+            dag,
+            report,
+        )
+
+        renderer = InteractiveRenderer()
+
+        return renderer.to_html(
+            graph,
+        )
+
     def render_graph(
         self,
         graph: GraphModel,
@@ -103,4 +124,18 @@ class DAGVisualizer:
         self._renderer.save(
             graph,
             path,
+        )
+
+    def graph_to_html(
+        self,
+        graph: GraphModel,
+    ) -> str:
+        """
+        Returns an existing GraphModel as HTML.
+        """
+
+        renderer = InteractiveRenderer()
+
+        return renderer.to_html(
+            graph,
         )

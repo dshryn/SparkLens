@@ -15,6 +15,7 @@ _OPERATOR_HEADER = re.compile(r"^\((?P<id>\d+)\)\s+(?P<name>[A-Za-z0-9_]+)")
 # Strips trailing index suffixes (rarely needed here)
 _PROPERTY_SUFFIX = re.compile(r"\s*\[\d+\]$")
 
+
 # ------------------------------------------------------------------------
 # Node Parser
 # ------------------------------------------------------------------------
@@ -22,6 +23,7 @@ class NodeParser:
     """
     Parses the detailed operator blocks into PhysicalOperator instances.
     """
+
     def parse(self, lines: Iterable[str]) -> dict[int, PhysicalOperator]:
         operators: dict[int, PhysicalOperator] = {}
         current: PhysicalOperator | None = None
@@ -63,6 +65,7 @@ class NodeParser:
 
         return operators
 
+
 # ------------------------------------------------------------------------
 # Tree Parser
 # ------------------------------------------------------------------------
@@ -74,6 +77,7 @@ class TreeParser:
     position, and uses a stack to assign parent→child relationships. Skips
     header lines (== Physical Plan ==, etc.).
     """
+
     def parse(self, lines: Iterable[str]) -> list[tuple[int, int]]:
         edges: list[tuple[int, int]] = []
         stack: list[tuple[int, int]] = []  # (node_id, indent)
@@ -109,6 +113,7 @@ class TreeParser:
 
         return edges
 
+
 # ------------------------------------------------------------------------
 # High-Level Parser
 # ------------------------------------------------------------------------
@@ -116,6 +121,7 @@ class PlanParser:
     """
     Parses a full Spark execution plan string into a ParsedPlan.
     """
+
     def __init__(self) -> None:
         self._node_parser = NodeParser()
         self._tree_parser = TreeParser()

@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
+from altair import Color
 from pyvis.network import Network
 
 from models.enums import Severity
@@ -33,10 +34,16 @@ class InteractiveRenderer(BaseRenderer):
             height="800px",
             width="100%",
             directed=True,
-            bgcolor="#FFFFFF",
+            bgcolor="#111827",
         )
 
-        net.barnes_hut()
+        net.barnes_hut(
+            gravity=-4000,
+            central_gravity=0.25,
+            spring_length=140,
+            spring_strength=0.03,
+            damping=0.09,
+        )
 
         for node in graph.nodes:
 
@@ -46,20 +53,29 @@ class InteractiveRenderer(BaseRenderer):
             )
 
             title = (
-                f"<b>{node.label}</b><br>"
-                f"Operator ID: {node.id}<br>"
-                f"Type: {node.operator_type.value}"
+                f"<h3>{node.label}</h3>"
+                f"<b>Operator ID:</b> {node.id}<br>"
+                f"<b>Type:</b> {node.operator_type.value}"
             )
 
             if node.severity is not None:
-                title += f"<br>Severity: {node.severity.value}"
+                title += f"<br><b>Severity:</b> " f"{node.severity.value}"
 
             net.add_node(
                 n_id=node.id,
-                label=f"{node.label}\n#{node.id}",
+                label=node.label,
                 title=title,
                 color=color,
-                size=30 if node.highlighted else 22,
+                borderWidth=2,
+                borderWidthSelected=4,
+                shape="box",
+                font={
+                    "color": "white",
+                    "size": 18,
+                    "face": "Arial",
+                },
+                margin=12,
+                size=35 if node.highlighted else 28,
             )
 
         for edge in graph.edges:
@@ -68,24 +84,45 @@ class InteractiveRenderer(BaseRenderer):
                 edge.source,
                 edge.target,
                 arrows="to",
+                color="#94A3B8",
+                width=2,
+                smooth={
+                    "enabled": True,
+                    "type": "cubicBezier",
+                },
             )
 
         net.set_options("""
             var options = {
-              "physics": {
-                "enabled": true,
-                "barnesHut": {
-                  "gravitationalConstant": -2500,
-                  "centralGravity": 0.2,
-                  "springLength": 120
-                }
+              "layout": {
+                "improvedLayout": true
               },
               "interaction": {
                 "hover": true,
+                "tooltipDelay": 150,
+                "dragNodes": true,
+                "dragView": true,
+                "zoomView": true,
+                "keyboard": true,
                 "navigationButtons": true,
-                "keyboard": true
+                "multiselect": true
+              },
+              "physics": {
+                "enabled": true,
+                "barnesHut": {
+                  "gravitationalConstant": -4000,
+                  "centralGravity": 0.25,
+                  "springLength": 140,
+                  "springConstant": 0.03,
+                  "damping": 0.09
+                },
+                "minVelocity": 0.75
+              },
+              "nodes": {
+                "shadow": true
               },
               "edges": {
+                "shadow": false,
                 "smooth": {
                   "enabled": true,
                   "type": "dynamic"
@@ -95,6 +132,20 @@ class InteractiveRenderer(BaseRenderer):
             """)
 
         return net
+
+    def to_html(
+        self,
+        graph: GraphModel,
+    ) -> str:
+        """
+        Returns the interactive graph as an HTML string.
+        """
+
+        network = self._build_network(
+            graph,
+        )
+
+        return network.generate_html()
 
     def render(
         self,
@@ -118,7 +169,9 @@ class InteractiveRenderer(BaseRenderer):
         Saves the interactive graph as an HTML file.
         """
 
-        network = self._build_network(graph)
+        network = self._build_network(
+            graph,
+        )
 
         Path(path).parent.mkdir(
             parents=True,

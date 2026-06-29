@@ -113,12 +113,27 @@ def render_dag(
     result: PipelineResult,
 ) -> None:
     """
-    Placeholder for future DAG visualization.
+    Render the interactive execution DAG.
     """
+
+    import streamlit.components.v1 as components
+
+    from visualization.dag import DAGVisualizer
 
     st.subheader("Execution DAG")
 
-    st.info("Interactive DAG visualization coming soon.")
+    visualizer = DAGVisualizer()
+
+    html = visualizer.to_html(
+        result.analysis.dag,
+        result.analysis.report,
+    )
+
+    components.html(
+        html,
+        height=850,
+        scrolling=True,
+    )
 
 
 def render_ai(
