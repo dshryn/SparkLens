@@ -1,54 +1,43 @@
-== Physical Plan == AdaptiveSparkPlan (18) +- == Initial Plan ==
-PhotonResultStage (17) +- PhotonColumnarToRow (16) +- PhotonProject (15)
-+- PhotonGroupingAgg (14) +- PhotonShuffleExchangeSource (13) +-
-PhotonShuffleMapStage (12) +- PhotonShuffleExchangeSink (11) +-
-PhotonGroupingAgg (10) +- PhotonProject (9) +- PhotonFilter (8) +-
-PhotonProject (7) +- PhotonRange (6)
+== Physical Plan ==
+AdaptiveSparkPlan (7)
++- HashAggregate (6)
+   +- Exchange (5)
+      +- HashAggregate (4)
+         +- Project (3)
+            +- Filter (2)
+               +- Range (1)
 
-(6) PhotonRange Output [1]: [id#1000L] Arguments: Range (0, 1000000,
-    step=1, splits=16)
 
-(7) PhotonProject Input [1]: [id#1000L] Arguments: [(id#1000L % 1000) AS
-    customer_id#1001L, ((id#1000L % 500) + 100) AS amount#1002L]
+(1) Range
+Output [1]: [id#0L]
+Arguments: Range (0, 1000000, step=1, splits=Some(8))
 
-(8) PhotonFilter Input [2]: [customer_id#1001L, amount#1002L] Arguments:
-    (amount#1002L > 250)
+(2) Filter
+Input [1]: [id#0L]
+Condition : (((id#0L % 500) + 100) > 250)
 
-(9) PhotonProject Input [2]: [customer_id#1001L, amount#1002L]
-    Arguments: [customer_id#1001L, amount#1002L]
+(3) Project
+Output [2]: [(id#0L % 1000) AS customer_id#1L, ((id#0L % 500) + 100) AS amount#2L]
+Input [1]: [id#0L]
 
-(10) PhotonGroupingAgg Input [2]: [customer_id#1001L, amount#1002L]
-     Arguments: [customer_id#1001L], [partial_sum(amount#1002L) AS
-     sum#1005L, partial_count(1) AS count#1006L], [sum#1005L,
-     count#1006L], [customer_id#1001L, sum#1005L, count#1006L], false
+(4) HashAggregate
+Input [2]: [customer_id#1L, amount#2L]
+Keys [1]: [customer_id#1L]
+Functions [1]: [partial_sum(amount#2L)]
+Aggregate Attributes [1]: [sum#8L]
+Results [2]: [customer_id#1L, sum#9L]
 
-(11) PhotonShuffleExchangeSink Input [3]: [customer_id#1001L, sum#1005L,
-     count#1006L] Arguments: hashpartitioning(customer_id#1001L, 16)
+(5) Exchange
+Input [2]: [customer_id#1L, sum#9L]
+Arguments: hashpartitioning(customer_id#1L, 200), ENSURE_REQUIREMENTS, [plan_id=19]
 
-(12) PhotonShuffleMapStage Input [3]: [customer_id#1001L, sum#1005L,
-     count#1006L] Arguments: ENSURE_REQUIREMENTS, [id=#5101]
+(6) HashAggregate
+Input [2]: [customer_id#1L, sum#9L]
+Keys [1]: [customer_id#1L]
+Functions [1]: [sum(amount#2L)]
+Aggregate Attributes [1]: [sum(amount#2L)#7L]
+Results [2]: [customer_id#1L, sum(amount#2L)#7L AS total_amount#3L]
 
-(13) PhotonShuffleExchangeSource Input [3]: [customer_id#1001L,
-     sum#1005L, count#1006L]
-
-(14) PhotonGroupingAgg Input [3]: [customer_id#1001L, sum#1005L,
-     count#1006L] Arguments: [customer_id#1001L],
-     [finalmerge_sum(sum#1005L) AS total_amount#1007L,
-     finalmerge_count(count#1006L) AS txn_count#1008L],
-     [total_amount#1007L, txn_count#1008L], [customer_id#1001L,
-     total_amount#1007L, txn_count#1008L], true
-
-(15) PhotonProject Input [3]: [customer_id#1001L, total_amount#1007L,
-     txn_count#1008L] Arguments: [customer_id#1001L, total_amount#1007L,
-     txn_count#1008L]
-
-(16) PhotonColumnarToRow Input [3]: [customer_id#1001L,
-     total_amount#1007L, txn_count#1008L]
-
-(17) PhotonResultStage Input [3]: [customer_id#1001L,
-     total_amount#1007L, txn_count#1008L]
-
-(18) AdaptiveSparkPlan Output [3]: [customer_id#1001L,
-     total_amount#1007L, txn_count#1008L] Arguments: isFinalPlan=false
-
-== Photon Explanation == The query is fully supported by Photon.
+(7) AdaptiveSparkPlan
+Output [2]: [customer_id#1L, total_amount#3L]
+Arguments: isFinalPlan=false

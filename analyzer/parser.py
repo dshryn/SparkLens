@@ -1,27 +1,129 @@
 from __future__ import annotations
 import re
+from dataclasses import dataclass
 from typing import Iterable
 
 from models.enums import OperatorType, TransformationType
 from models.parsed_plan import ParsedPlan
 from models.physical_operator import PhysicalOperator
 
-# ------------------------------------------------------------------------
-# Regex Patterns
-# ------------------------------------------------------------------------
-
-# Matches lines like "(123) OperatorName"
 _OPERATOR_HEADER = re.compile(r"^\((?P<id>\d+)\)\s+(?P<name>[A-Za-z0-9_]+)")
-# Strips trailing index suffixes (rarely needed here)
 _PROPERTY_SUFFIX = re.compile(r"\s*\[\d+\]$")
+_TRAILING_ID = re.compile(r"\((\d+)\)\s*$")
+
+_CONNECTOR_UNIT_PATTERNS = [
+    re.compile(r"^:(\s*)"),
+    re.compile(r"^\+-\s*"),
+    re.compile(r"^├─\s*"),
+    re.compile(r"^└─\s*"),
+    re.compile(r"^│\s*"),
+    re.compile(r"^\s{3}"),
+]
 
 
-# ------------------------------------------------------------------------
-# Node Parser
-# ------------------------------------------------------------------------
-class NodeParser:
+@dataclass(frozen=True)
+class RealTreeToken:
     """
-    Parses the detailed operator blocks into PhysicalOperator instances.
+    A tree line that corresponds to an actual PhysicalOperator: it carries a
+    numbered id and will have a matching entry in NodeParser's output.
+    node_id is a plain `int` -- never Optional -- so any code holding a
+    RealTreeToken can pass its node_id directly wherever an int id is
+    required, with no narrowing, cast, or assertion needed.
+    """
+
+    depth: int
+    name: str
+    node_id: int
+    raw_line: str
+
+
+@dataclass(frozen=True)
+class WrapperTreeToken:
+    """
+    A tree line that is structural scaffolding only (AdaptiveSparkPlan,
+    ResultStage, ShuffleMapStage, BroadcastQueryStage, WholeStageCodegen,
+    ...). These appear in Spark's textual tree but are never assigned a
+    numbered id and never appear in the detail block section -- they are
+    NOT PhysicalOperators and are intentionally excluded from
+    ParsedPlan.operators. There is no node_id field at all: the type system
+    itself prevents a WrapperTreeToken from ever being used as an edge
+    endpoint, rather than relying on a runtime None-check.
+    """
+
+    depth: int
+    name: str
+    raw_line: str
+
+
+# A tree line is always exactly one of these two kinds. Code that needs to
+# treat both uniformly (e.g. depth-stack management) can rely on `depth`
+# being present on both members of the union; code that needs a real id
+# narrows with `isinstance(token, RealTreeToken)`, after which `token.node_id`
+# is a plain `int` to the type checker -- no cast, no ignore, no assert.
+TreeToken = RealTreeToken | WrapperTreeToken
+
+
+class TreeLexer:
+    """
+    Converts raw ASCII-tree lines into TreeTokens. Indentation is measured
+    in whole connector units consumed from the front of the line, not by
+    locating the first alphabetic character -- robust to Unicode glyphs,
+    ASCII fallback glyphs, and their differing display widths.
+    """
+
+    def _measure_depth(self, line: str) -> tuple[int, str]:
+        depth = 0
+        remainder = line
+        progressed = True
+        while progressed:
+            progressed = False
+            for pattern in _CONNECTOR_UNIT_PATTERNS:
+                match = pattern.match(remainder)
+                if match:
+                    remainder = remainder[match.end():]
+                    depth += 1
+                    progressed = True
+                    break
+        return depth, remainder
+
+    def lex(self, lines: Iterable[str]) -> list[TreeToken]:
+        tokens: list[TreeToken] = []
+
+        for raw_line in lines:
+            line = raw_line.rstrip()
+            if not line.strip():
+                continue
+            if "== " in line and " ==" in line:
+                continue  # section header, e.g. "== Physical Plan =="
+
+            depth, remainder = self._measure_depth(line)
+
+            name_match = re.search(r"[A-Za-z][A-Za-z0-9_]*", remainder)
+            if not name_match:
+                continue  # connector-only line, genuinely not a node
+
+            name = name_match.group(0)
+            id_match = _TRAILING_ID.search(line)
+
+            token: TreeToken
+            if id_match:
+                token = RealTreeToken(
+                    depth=depth, name=name, node_id=int(id_match.group(1)), raw_line=line
+                )
+            else:
+                token = WrapperTreeToken(depth=depth, name=name, raw_line=line)
+
+            tokens.append(token)
+
+        return tokens
+
+
+class NodeParser:
+    """Parses the numbered operator detail blocks into PhysicalOperator instances.
+
+    This is the single source of truth for which ids exist in ParsedPlan.operators.
+    EdgeBuilder is constrained to only ever reference ids that could have come
+    from here, by construction (see EdgeBuilder).
     """
 
     def parse(self, lines: Iterable[str]) -> dict[int, PhysicalOperator]:
@@ -35,7 +137,6 @@ class NodeParser:
 
             header = _OPERATOR_HEADER.match(line)
             if header:
-                # Start of a new operator block: e.g. "(10) Project"
                 operator_id = int(header.group("id"))
                 operator_name = header.group("name")
                 current = PhysicalOperator(
@@ -50,7 +151,6 @@ class NodeParser:
             if current is None:
                 continue
 
-            # Parse properties into operator fields
             if ":" in line:
                 key, value = map(str.strip, line.split(":", 1))
                 normalized = _PROPERTY_SUFFIX.sub("", key).strip()
@@ -66,92 +166,151 @@ class NodeParser:
         return operators
 
 
-# ------------------------------------------------------------------------
-# Tree Parser
-# ------------------------------------------------------------------------
-class TreeParser:
+class EdgeBuilder:
     """
-    Reconstructs the parent-child edges from the plan's ASCII-art tree.
+    Builds parent-child edges from token depth.
 
-    Scans each line of the plan tree, infers indent level by the first letter
-    position, and uses a stack to assign parent→child relationships. Skips
-    header lines (== Physical Plan ==, etc.).
+    Wrapper tokens (node_id is None) are pushed onto the depth stack so
+    that depth is measured correctly for their descendants, but they are
+    NEVER used as an edge endpoint in either direction:
+
+      - A wrapper token itself never appears as a child in an emitted edge.
+      - When looking for a token's parent, the stack is walked upward past
+        any wrapper tokens until a real (node_id is not None) token is
+        found, or the stack is exhausted (token is a true root).
+
+    This guarantees, by construction, that every edge in the returned list
+    references only ids that exist in the operators dict produced by
+    NodeParser, since both node_id here and NodeParser's operator_id are
+    parsed from the same "(id)" token format.
+
+    A useful side effect: when a wrapper sits directly between two real
+    operators (e.g. ShuffleExchangeSource -> ShuffleMapStage ->
+    ShuffleExchangeSink), the wrapper is transparently skipped and the two
+    real operators are connected directly -- which is also the correct
+    "single logical shuffle boundary" semantics.
     """
 
-    def parse(self, lines: Iterable[str]) -> list[tuple[int, int]]:
+    def build(self, tokens: list[TreeToken]) -> list[tuple[int, int]]:
         edges: list[tuple[int, int]] = []
-        stack: list[tuple[int, int]] = []  # (node_id, indent)
+        stack: list[TreeToken] = []
 
-        for raw_line in lines:
-            line = raw_line.rstrip()
-            # Skip empty or header lines (e.g. "== Physical Plan ==", sections)
-            if not line.strip() or "==" in line:
-                continue
-
-            # Try to find an operator ID in parentheses at line end
-            id_match = re.search(r"\((\d+)\)\s*$", line)
-            if not id_match:
-                continue
-            node_id = int(id_match.group(1))
-
-            # Find the position of the first letter of the operator name
-            alpha_match = re.search(r"[A-Za-z]", line)
-            if not alpha_match:
-                continue
-            indent = alpha_match.start()
-
-            # Pop stack to find current parent
-            while stack and stack[-1][1] >= indent:
+        for token in tokens:
+            while stack and stack[-1].depth >= token.depth:
                 stack.pop()
-            # The new parent is the current top of stack (if any)
-            if stack:
-                parent_id = stack[-1][0]
-                edges.append((parent_id, node_id))
 
-            # Push this node onto the stack
-            stack.append((node_id, indent))
+            if isinstance(token, RealTreeToken):
+                ancestor = self._nearest_real_ancestor(stack)
+                if ancestor is not None:
+                    # Both operands are plain `int` here: token.node_id is
+                    # `int` because `token` was narrowed to RealTreeToken by
+                    # the isinstance check above, and ancestor.node_id is
+                    # `int` because _nearest_real_ancestor's return type is
+                    # `RealTreeToken | None`. No cast or assert is needed.
+                    edges.append((ancestor.node_id, token.node_id))
+
+            stack.append(token)
 
         return edges
 
+    @staticmethod
+    def _nearest_real_ancestor(stack: list[TreeToken]) -> RealTreeToken | None:
+        for token in reversed(stack):
+            if isinstance(token, RealTreeToken):
+                return token
+        return None
 
-# ------------------------------------------------------------------------
-# High-Level Parser
-# ------------------------------------------------------------------------
-class PlanParser:
+
+class TreeParser:
     """
-    Parses a full Spark execution plan string into a ParsedPlan.
+    Public API preserved: TreeParser.parse(lines) -> list[tuple[int, int]]
+    Every returned tuple references only ids present in NodeParser's output.
     """
 
     def __init__(self) -> None:
+        self._lexer = TreeLexer()
+        self._edge_builder = EdgeBuilder()
+
+    def parse(self, lines: Iterable[str]) -> list[tuple[int, int]]:
+        tokens = self._lexer.lex(lines)
+        return self._edge_builder.build(tokens)
+
+    def parse_tokens(self, lines: Iterable[str]) -> list[TreeToken]:
+        """Exposes tokens (including wrapper tokens) for read-only semantic
+        passes, e.g. shuffle-boundary detection for stats/labeling."""
+        return self._lexer.lex(lines)
+
+
+@dataclass
+class ShuffleBoundary:
+    sink_id: int
+    source_id: int
+    stage_wrapper_name: str
+
+
+class ShuffleBoundaryDetector:
+    """
+    Read-only detector for stats/labeling purposes only. It does NOT modify
+    edges -- EdgeBuilder already produces the correct connectivity by
+    transparently skipping the ShuffleMapStage wrapper. This pass exists so
+    the analyzer can report "1 shuffle boundary" instead of miscounting
+    ShuffleExchangeSink and ShuffleExchangeSource as two unrelated exchanges.
+    """
+
+    def detect(self, tokens: list[TreeToken]) -> list[ShuffleBoundary]:
+        boundaries: list[ShuffleBoundary] = []
+
+        for i, token in enumerate(tokens):
+            if not isinstance(token, RealTreeToken) or token.name != "ShuffleExchangeSource":
+                continue
+            for j in range(i + 1, len(tokens)):
+                stage_token = tokens[j]
+                if stage_token.depth <= token.depth:
+                    break
+                if isinstance(stage_token, WrapperTreeToken) and stage_token.depth == token.depth + 1:
+                    for sink_token in tokens[j + 1:]:
+                        if sink_token.depth <= stage_token.depth:
+                            break
+                        if (
+                            isinstance(sink_token, RealTreeToken)
+                            and sink_token.name == "ShuffleExchangeSink"
+                            and sink_token.depth == stage_token.depth + 1
+                        ):
+                            boundaries.append(
+                                ShuffleBoundary(
+                                    sink_id=sink_token.node_id,
+                                    source_id=token.node_id,
+                                    stage_wrapper_name=stage_token.name,
+                                )
+                            )
+                    break
+
+        return boundaries
+
+
+class PlanParser:
+    def __init__(self) -> None:
         self._node_parser = NodeParser()
         self._tree_parser = TreeParser()
+        self._shuffle_detector = ShuffleBoundaryDetector()
 
     def parse(self, plan: str) -> ParsedPlan:
-        """
-        Splits the plan text into the tree (outline) and node-detail sections,
-        then produces a ParsedPlan(operators, edges).
-        """
         tree_lines: list[str] = []
         node_lines: list[str] = []
         current = tree_lines
 
-        # Separate the tree part from the operator detail part
         for line in plan.splitlines():
             if _OPERATOR_HEADER.match(line.strip()):
-                current = node_lines  # switch to reading operator blocks
+                current = node_lines
             current.append(line)
 
-        # Parse nodes first
         operators = self._node_parser.parse(node_lines)
 
-        # Classify each operator by name (substring matches)
         for op in operators.values():
             name = op.name
-            # Map name substrings to OperatorType
             if "BroadcastHashJoin" in name:
                 op.operator_type = OperatorType.BROADCAST_HASH_JOIN
                 op.transformation = TransformationType.WIDE
-                # Mark broadcast hint
                 op.metadata["broadcast_join"] = "true"
             elif "ShuffleHashJoin" in name:
                 op.operator_type = OperatorType.SHUFFLE_HASH_JOIN
@@ -166,10 +325,11 @@ class PlanParser:
                 op.operator_type = OperatorType.SORT_AGGREGATE
                 op.transformation = TransformationType.WIDE
             elif "ShuffleExchange" in name or "BroadcastExchange" in name:
-                if "BroadcastExchange" in name:
-                    op.operator_type = OperatorType.BROADCAST_EXCHANGE
-                else:
-                    op.operator_type = OperatorType.EXCHANGE
+                op.operator_type = (
+                    OperatorType.BROADCAST_EXCHANGE
+                    if "BroadcastExchange" in name
+                    else OperatorType.EXCHANGE
+                )
                 op.transformation = TransformationType.WIDE
             elif "Sort" in name:
                 op.operator_type = OperatorType.SORT
@@ -184,12 +344,18 @@ class PlanParser:
                 op.operator_type = OperatorType.FILE_SCAN
                 op.transformation = TransformationType.NARROW
             else:
-                # Leave as UNKNOWN/NONE
                 op.operator_type = OperatorType.UNKNOWN
                 if op.transformation == TransformationType.NONE:
-                    # If still NONE, default narrow for safe side
                     op.transformation = TransformationType.NARROW
 
-        # Parse tree edges
         edges = self._tree_parser.parse(tree_lines)
+
+        for parent_id, child_id in edges:
+            if parent_id not in operators or child_id not in operators:
+                raise ValueError(
+                    f"TreeParser invariant violated: edge ({parent_id}, {child_id}) "
+                    f"references an id not present in NodeParser output. "
+                    f"This indicates a bug in EdgeBuilder's wrapper-skipping logic."
+                )
+
         return ParsedPlan(operators=operators, edges=edges)
