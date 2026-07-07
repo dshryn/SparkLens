@@ -331,6 +331,13 @@ class PlanParser:
                     else OperatorType.EXCHANGE
                 )
                 op.transformation = TransformationType.WIDE
+            elif name == "Exchange":
+                # A bare "Exchange" node (no Shuffle/Broadcast prefix) is
+                # still a shuffle-boundary exchange operator -- it must not
+                # fall through to UNKNOWN, or every downstream exchange/
+                # shuffle/stage-counting rule silently finds nothing.
+                op.operator_type = OperatorType.EXCHANGE
+                op.transformation = TransformationType.WIDE
             elif "Sort" in name:
                 op.operator_type = OperatorType.SORT
                 op.transformation = TransformationType.WIDE
