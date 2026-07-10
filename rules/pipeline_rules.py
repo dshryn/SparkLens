@@ -11,7 +11,16 @@ from .base import Rule
 class PipelineRule(Rule):
     """
     Detects pipelines of narrow transformations within a Spark stage.
+
+    Small pipelines are not reported at all.
+    Reasonably sized pipelines are reported as a POSITIVE finding
+    (an efficient transformation pipeline with no intermediate shuffle).
+    Only pipelines that are excessively long are reported as a real
+    complexity concern.
     """
+
+    _TRIVIAL_THRESHOLD = 2
+    _COMPLEXITY_THRESHOLD = 8
 
     def apply(
         self,
@@ -27,22 +36,53 @@ class PipelineRule(Rule):
                 root,
             )
 
-            if pipeline_size <= 1:
+            if pipeline_size <= self._TRIVIAL_THRESHOLD:
                 continue
 
-            findings.append(
-                AnalysisFinding(
-                    rule=self.__class__.__name__,
-                    title="Transformation Pipeline Detected",
-                    description=(
-                        f"A pipeline containing {pipeline_size} "
-                        "operators executes without an intermediate "
-                        "shuffle."
-                    ),
-                    severity=Severity.LOW,
-                    operator_id=root.operator_id,
+            if pipeline_size >= self._COMPLEXITY_THRESHOLD:
+
+                findings.append(
+                    AnalysisFinding(
+                        rule=self.__class__.__name__,
+                        title="Complex Transformation Pipeline",
+                        description=(
+                            f"A pipeline containing {pipeline_size} "
+                            "operators executes without an intermediate "
+                            "shuffle. Its length may make the plan harder "
+                            "to reason about and could indicate "
+                            "opportunities to consolidate transformations."
+                        ),
+                        severity=Severity.MEDIUM,
+                        operator_id=root.operator_id,
+                        metadata={
+                            "positive": False,
+                            "category": "complex_pipeline",
+                            "pipeline_size": pipeline_size,
+                        },
+                    )
                 )
-            )
+
+            else:
+
+                findings.append(
+                    AnalysisFinding(
+                        rule=self.__class__.__name__,
+                        title="Efficient Transformation Pipeline",
+                        description=(
+                            f"A pipeline containing {pipeline_size} "
+                            "operators executes without an intermediate "
+                            "shuffle, avoiding unnecessary data movement "
+                            "between operators."
+                        ),
+                        severity=Severity.LOW,
+                        operator_id=root.operator_id,
+                        metadata={
+                            "positive": True,
+                            "category": "efficient_pipeline",
+                            "pipeline_size": pipeline_size,
+                        },
+                    )
+                )
 
         return findings
 

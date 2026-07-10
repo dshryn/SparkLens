@@ -10,6 +10,16 @@ from .base import Rule
 class ShuffleRule(Rule):
     """
     Detects shuffle operations in the execution DAG.
+
+    This rule only records the raw observation that a shuffle exists at a
+    given operator. It intentionally does NOT judge whether the shuffle is
+    required, expected, or unnecessary -- that classification is the sole
+    responsibility of ExecutionQualityRule, whose "required": True /
+    "positive": True metadata is used by RecommendationEngine to decide
+    whether this finding is allowed to produce an optimization
+    recommendation. Without matching ExecutionQualityRule evidence, this
+    finding remains a candidate optimization opportunity; with it, the
+    recommendation is suppressed.
     """
 
     def apply(
@@ -30,7 +40,10 @@ class ShuffleRule(Rule):
                     title="Shuffle Detected",
                     description=(
                         "A shuffle exchange redistributes data across "
-                        "partitions and may become a performance bottleneck."
+                        "partitions. Whether this shuffle is required, "
+                        "expected, or an optimization opportunity is "
+                        "determined by ExecutionQualityRule's evidence for "
+                        "this operator."
                     ),
                     severity=Severity.MEDIUM,
                     operator_id=operator.operator_id,

@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from models.analysis_finding import AnalysisFinding
-from models.enums import OperatorType, Severity
+from models.enums import Severity, TransformationType
 from models.execution_dag import ExecutionDAG
 
 from .base import Rule
@@ -11,7 +11,15 @@ class StageRule(Rule):
     """
     Detects Spark stage boundaries.
 
-    Every shuffle exchange sink represents the end of one stage.
+    IMPORTANT: This rule's stage count MUST use the exact same
+    definition as SparkAnalyzer._compute_statistics's canonical formula
+    (one initial stage, plus one additional stage for every WIDE
+    transformation) so that ExecutionStatistics.stage_count and this
+    rule's "Estimated Stage Count" finding can never disagree. Do not
+    recompute stage boundaries using an independent heuristic (e.g.
+    matching on operator name substrings like "shuffleexchangesink") --
+    that was the previous source of inconsistent stage counts between
+    statistics and findings.
     """
 
     def apply(
@@ -25,10 +33,7 @@ class StageRule(Rule):
 
         for operator in dag.operators.values():
 
-            if operator.operator_type != OperatorType.EXCHANGE:
-                continue
-
-            if "shuffleexchangesink" not in operator.name.lower():
+            if operator.transformation != TransformationType.WIDE:
                 continue
 
             stage_count += 1
@@ -38,7 +43,9 @@ class StageRule(Rule):
                     rule=self.__class__.__name__,
                     title="Stage Boundary Detected",
                     description=(
-                        "A shuffle exchange creates a new Spark stage."
+                        "This operator is a wide (shuffle-boundary) "
+                        "transformation and introduces a new Spark "
+                        "stage."
                     ),
                     severity=Severity.LOW,
                     operator_id=operator.operator_id,
@@ -54,6 +61,11 @@ class StageRule(Rule):
                     f"{stage_count} Spark stage(s)."
                 ),
                 severity=Severity.LOW,
+                metadata={
+                    "positive": True,
+                    "category": "stage_count",
+                    "stage_count": stage_count,
+                },
             )
         )
 

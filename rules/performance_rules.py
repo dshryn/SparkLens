@@ -10,6 +10,16 @@ from .base import Rule
 class PerformanceRule(Rule):
     """
     Detects common performance characteristics of a Spark execution plan.
+
+    NOTE: "Multi-Stage Aggregation" is an EXPECTED-COST / POSITIVE
+    observation, not an actionable optimization opportunity -- two or
+    more aggregation operators is exactly what Spark's standard
+    two-phase (partial + final) aggregation strategy looks like. It is
+    marked with metadata "positive": True so RecommendationEngine never
+    turns it into a generic "review the plan" recommendation. All other
+    findings in this rule (single-partition bottleneck, multiple
+    shuffles, multiple sorts) remain unmarked because they represent
+    real, evidence-backed concerns.
     """
 
     def apply(
@@ -99,9 +109,15 @@ class PerformanceRule(Rule):
                     title="Multi-Stage Aggregation",
                     description=(
                         "Spark performs aggregation in multiple stages, "
-                        "which is expected for distributed execution."
+                        "which is expected for distributed execution "
+                        "(e.g. a partial map-side aggregation followed "
+                        "by a final merge aggregation)."
                     ),
                     severity=Severity.LOW,
+                    metadata={
+                        "positive": True,
+                        "category": "multi_stage_aggregation",
+                    },
                 )
             )
 

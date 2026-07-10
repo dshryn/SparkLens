@@ -20,4 +20,4 @@ class AnalysisFinding(BaseModel):
     description: str
     severity: Severity
     operator_id: int | None = None
-    metadata: dict[str, str] = field(default_factory=dict)
+    metadata: dict[str, object] = field(default_factory=dict)

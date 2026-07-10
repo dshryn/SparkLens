@@ -15,7 +15,6 @@ from models.enums import OperatorType
 from models.enums import Severity
 from models.enums import TransformationType
 
-from rules.aqe_rules import AQERule
 from rules.aggregation_rules import AggregationRule
 from rules.engine import RuleEngine
 from rules.exchange_rules import ExchangeRule
@@ -23,6 +22,7 @@ from rules.join_rules import BroadcastJoinRule
 from rules.partition_rules import PartitionRule
 from rules.performance_rules import PerformanceRule
 from rules.pipeline_rules import PipelineRule
+from rules.quality_rules import ExecutionQualityRule
 from rules.shuffle_rules import ShuffleRule
 from rules.sort_rules import SortRule
 from rules.stage_rules import StageRule
@@ -34,6 +34,13 @@ logger = logging.getLogger(__name__)
 class SparkAnalyzer:
     """
     High-level orchestration entry point for SparkLens.
+
+    NOTE: AQERule has been removed from the default rule set. AQE detection
+    is now owned exclusively by ExecutionQualityRule ("AQE Enabled"), which
+    prevents the previous duplicate finding ("AQE Enabled" +
+    "Adaptive Query Execution Detected") for the same AdaptiveSparkPlan
+    operator. RuleEngine also deduplicates defensively at the report level
+    in case a custom rule set still registers both.
     """
 
     def __init__(
@@ -161,6 +168,7 @@ class SparkAnalyzer:
         join_strategies: dict[str, int] = {}
 
         max_depth = 0
+        wide_transformation_count = 0
 
         for operator in dag.operators.values():
 
@@ -249,7 +257,15 @@ class SparkAnalyzer:
                 operator.transformation
                 == TransformationType.WIDE
             ):
-                stats.stage_count += 1
+                wide_transformation_count += 1
+
+        # Stage count is defined as: one initial stage, plus one additional
+        # stage for every wide (shuffle-boundary) transformation. This is
+        # the single, canonical stage-estimation formula for the analyzer.
+        # Any rule that reports a stage estimate (e.g. StageRule) MUST use
+        # this same value via `stats.stage_count` rather than recomputing
+        # its own count, so that statistics and findings never disagree.
+        stats.stage_count = 1 + wide_transformation_count
 
         stats.max_depth = max_depth
 
@@ -304,6 +320,10 @@ class SparkAnalyzer:
     def _default_rule_engine() -> RuleEngine:
         """
         Create the default SparkLens rule engine.
+
+        AQERule is intentionally NOT registered here: AQE detection is
+        owned exclusively by ExecutionQualityRule to avoid duplicate
+        findings for the same AdaptiveSparkPlan operator.
         """
 
         return RuleEngine(
@@ -314,9 +334,9 @@ class SparkAnalyzer:
                 PartitionRule(),
                 AggregationRule(),
                 SortRule(),
-                AQERule(),
                 StageRule(),
                 PerformanceRule(),
                 PipelineRule(),
+                ExecutionQualityRule(),
             ]
         )

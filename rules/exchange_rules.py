@@ -10,6 +10,12 @@ from .base import Rule
 class ExchangeRule(Rule):
     """
     Detects data exchange operations in the execution DAG.
+
+    Like ShuffleRule, this rule records the raw observation only. It does
+    not decide whether the exchange is required or unnecessary --
+    ExecutionQualityRule supplies that evidence, and RecommendationEngine
+    uses it to suppress recommendations for exchanges it has marked
+    "required": True.
     """
 
     def apply(
@@ -49,7 +55,9 @@ class ExchangeRule(Rule):
                         title="Shuffle Write",
                         description=(
                             "Spark writes shuffle data for downstream "
-                            "stages."
+                            "stages. Whether this exchange is required is "
+                            "determined by ExecutionQualityRule's evidence "
+                            "for this operator."
                         ),
                         severity=Severity.MEDIUM,
                         operator_id=operator.operator_id,
@@ -64,7 +72,10 @@ class ExchangeRule(Rule):
                         title="Shuffle Read",
                         description=(
                             "Spark reads data produced by a previous "
-                            "shuffle stage."
+                            "shuffle stage. Whether this exchange is "
+                            "required is determined by "
+                            "ExecutionQualityRule's evidence for this "
+                            "operator."
                         ),
                         severity=Severity.MEDIUM,
                         operator_id=operator.operator_id,
@@ -79,7 +90,9 @@ class ExchangeRule(Rule):
                         title="Exchange Operator",
                         description=(
                             "Spark exchanges data between execution "
-                            "stages."
+                            "stages. Whether this exchange is required is "
+                            "determined by ExecutionQualityRule's evidence "
+                            "for this operator."
                         ),
                         severity=Severity.MEDIUM,
                         operator_id=operator.operator_id,
