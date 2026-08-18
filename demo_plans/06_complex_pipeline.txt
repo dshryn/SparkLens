@@ -1,0 +1,82 @@
+== Physical Plan ==
+AdaptiveSparkPlan (14)
++- Sort (13)
+   +- Exchange (12)
+      +- HashAggregate (11)
+         +- Exchange (10)
+            +- HashAggregate (9)
+               +- Project (8)
+                  +- BroadcastHashJoin Inner BuildRight (7)
+                     :- Project (3)
+                     :  +- Filter (2)
+                     :     +- Range (1)
+                     +- BroadcastExchange (6)
+                        +- Project (5)
+                           +- Range (4)
+
+
+(1) Range
+Output [1]: [id#0L]
+Arguments: Range (0, 1000000, step=1, splits=Some(8))
+
+(2) Filter
+Input [1]: [id#0L]
+Condition : ((cast(((id#0L % 5000) + 100) as double) > 1000.0) AND isnotnull((id#0L % 10000)))
+
+(3) Project
+Output [2]: [(id#0L % 10000) AS customer_id#2L, cast(((id#0L % 5000) + 100) as double) AS amount#4]
+Input [1]: [id#0L]
+
+(4) Range
+Output [1]: [id#5L]
+Arguments: Range (0, 10000, step=1, splits=Some(8))
+
+(5) Project
+Output [2]: [id#5L AS customer_id#6L, (id#5L % 10) AS country_id#7L]
+Input [1]: [id#5L]
+
+(6) BroadcastExchange
+Input [2]: [customer_id#6L, country_id#7L]
+Arguments: HashedRelationBroadcastMode(List(input[0, bigint, false]),false), [plan_id=130]
+
+(7) BroadcastHashJoin
+Left keys [1]: [customer_id#2L]
+Right keys [1]: [customer_id#6L]
+Join type: Inner
+Join condition: None
+
+(8) Project
+Output [2]: [amount#4, country_id#7L]
+Input [4]: [customer_id#2L, amount#4, customer_id#6L, country_id#7L]
+
+(9) HashAggregate
+Input [2]: [amount#4, country_id#7L]
+Keys [1]: [country_id#7L]
+Functions [2]: [partial_sum(amount#4), partial_count(1)]
+Aggregate Attributes [2]: [sum#39, count#40L]
+Results [3]: [country_id#7L, sum#41, count#42L]
+
+(10) Exchange
+Input [3]: [country_id#7L, sum#41, count#42L]
+Arguments: hashpartitioning(country_id#7L, 200), ENSURE_REQUIREMENTS, [plan_id=135]
+
+(11) HashAggregate
+Input [3]: [country_id#7L, sum#41, count#42L]
+Keys [1]: [country_id#7L]
+Functions [2]: [sum(amount#4), count(1)]
+Aggregate Attributes [2]: [sum(amount#4)#30, count(1)#29L]
+Results [3]: [country_id#7L, sum(amount#4)#30 AS total_amount#22, count(1)#29L AS order_count#23L]
+
+(12) Exchange
+Input [3]: [country_id#7L, total_amount#22, order_count#23L]
+Arguments: rangepartitioning(total_amount#22 DESC NULLS LAST, 200), ENSURE_REQUIREMENTS, [plan_id=138]
+
+(13) Sort
+Input [3]: [country_id#7L, total_amount#22, order_count#23L]
+Arguments: [total_amount#22 DESC NULLS LAST], true, 0
+
+(14) AdaptiveSparkPlan
+Output [3]: [country_id#7L, total_amount#22, order_count#23L]
+Arguments: isFinalPlan=false
+
+

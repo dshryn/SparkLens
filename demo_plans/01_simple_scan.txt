@@ -1,0 +1,14 @@
+== Physical Plan ==
+* Project (2)
++- * Range (1)
+
+
+(1) Range [codegen id : 1]
+Output [1]: [id#0L]
+Arguments: Range (0, 1000000, step=1, splits=Some(8))
+
+(2) Project [codegen id : 1]
+Output [3]: [id#0L AS order_id#1L, (id#0L % 10000) AS customer_id#2L, cast(((id#0L % 5000) + 100) as double) AS amount#4]
+Input [1]: [id#0L]
+
+

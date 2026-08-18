@@ -1,0 +1,45 @@
+== Physical Plan ==
+AdaptiveSparkPlan (7)
++- HashAggregate (6)
+   +- Exchange (5)
+      +- HashAggregate (4)
+         +- Project (3)
+            +- Filter (2)
+               +- Range (1)
+
+
+(1) Range
+Output [1]: [id#0L]
+Arguments: Range (0, 1000000, step=1, splits=Some(8))
+
+(2) Filter
+Input [1]: [id#0L]
+Condition : (cast(((id#0L % 5000) + 100) as double) > 1000.0)
+
+(3) Project
+Output [2]: [(id#0L % 100) AS product_id#3L, cast(((id#0L % 5000) + 100) as double) AS amount#4]
+Input [1]: [id#0L]
+
+(4) HashAggregate
+Input [2]: [product_id#3L, amount#4]
+Keys [1]: [product_id#3L]
+Functions [1]: [partial_sum(amount#4)]
+Aggregate Attributes [1]: [sum#31]
+Results [2]: [product_id#3L, sum#32]
+
+(5) Exchange
+Input [2]: [product_id#3L, sum#32]
+Arguments: hashpartitioning(product_id#3L, 200), ENSURE_REQUIREMENTS, [plan_id=27]
+
+(6) HashAggregate
+Input [2]: [product_id#3L, sum#32]
+Keys [1]: [product_id#3L]
+Functions [1]: [sum(amount#4)]
+Aggregate Attributes [1]: [sum(amount#4)#13]
+Results [2]: [product_id#3L, sum(amount#4)#13 AS total_amount#8]
+
+(7) AdaptiveSparkPlan
+Output [2]: [product_id#3L, total_amount#8]
+Arguments: isFinalPlan=false
+
+
