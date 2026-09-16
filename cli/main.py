@@ -1,5 +1,6 @@
 from pathlib import Path
 import argparse
+import sys
 
 from dotenv import load_dotenv
 
@@ -7,6 +8,7 @@ from services.pipeline import AnalysisPipeline
 
 from report.markdown import MarkdownRenderer
 from report.html import HTMLRenderer
+from report.exporters import pipeline_to_json
 
 from visualization.dag import DAGVisualizer
 
@@ -17,6 +19,7 @@ load_dotenv()
 def analyze_command(
     plan_file: str,
     use_ai: bool,
+    use_json: bool = False,
 ) -> None:
 
     plan_path = Path(plan_file)
@@ -24,7 +27,8 @@ def analyze_command(
     if not plan_path.exists():
 
         print(
-            f"Plan file not found: {plan_path}"
+            f"Plan file not found: {plan_path}",
+            file=sys.stderr
         )
 
         return
@@ -39,6 +43,10 @@ def analyze_command(
         plan,
         enable_ai=use_ai,
     )
+
+    if use_json:
+        print(pipeline_to_json(result))
+        return
 
     DAGVisualizer().save(
         result.analysis.dag,
@@ -84,6 +92,12 @@ def main():
         action="store_true",
     )
 
+    analyze_parser.add_argument(
+        "--json",
+        action="store_true",
+        help="Output the pipeline result in JSON format"
+    )
+
     args = parser.parse_args()
 
     if args.command == "analyze":
@@ -91,6 +105,7 @@ def main():
         analyze_command(
             args.plan_file,
             args.ai,
+            args.json,
         )
 
         return
