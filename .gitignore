@@ -30,7 +30,8 @@ Thumbs.db
 # ENV
 .env
 
-# Reports
+# Reports & Test data files
 report.html
 report.md
 dag.png
+*.csv
