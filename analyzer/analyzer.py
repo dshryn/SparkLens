@@ -13,7 +13,6 @@ from models.execution_statistics import ExecutionStatistics
 from models.analysis_report import AnalysisReport
 from models.enums import OperatorType
 from models.enums import Severity
-from models.enums import TransformationType
 
 from rules.aggregation_rules import AggregationRule
 from rules.engine import RuleEngine
@@ -35,12 +34,8 @@ class SparkAnalyzer:
     """
     High-level orchestration entry point for SparkLens.
 
-    NOTE: AQERule has been removed from the default rule set. AQE detection
-    is now owned exclusively by ExecutionQualityRule ("AQE Enabled"), which
-    prevents the previous duplicate finding ("AQE Enabled" +
-    "Adaptive Query Execution Detected") for the same AdaptiveSparkPlan
-    operator. RuleEngine also deduplicates defensively at the report level
-    in case a custom rule set still registers both.
+    AQE detection is owned exclusively by ExecutionQualityRule in the
+    default rule set to prevent duplicate AQE findings.
     """
 
     def __init__(
@@ -63,11 +58,10 @@ class SparkAnalyzer:
         self,
         dataframe,
     ) -> AnalysisResult:
-        """
-        Analyze a Spark DataFrame.
-        """
 
-        logger.info("Starting DataFrame analysis.")
+        logger.info(
+            "Starting DataFrame analysis."
+        )
 
         plan = self._extractor.extract(
             dataframe
@@ -86,11 +80,10 @@ class SparkAnalyzer:
         self,
         plan: str,
     ) -> AnalysisResult:
-        """
-        Analyze an already extracted Spark execution plan.
-        """
 
-        logger.info("Starting execution plan analysis.")
+        logger.info(
+            "Starting execution plan analysis."
+        )
 
         normalized_plan = self._normalizer.normalize(
             plan
@@ -140,7 +133,9 @@ class SparkAnalyzer:
             statistics=statistics,
         )
 
-        logger.info("Analysis pipeline completed successfully.")
+        logger.info(
+            "Analysis pipeline completed successfully."
+        )
 
         return result
 
@@ -152,8 +147,13 @@ class SparkAnalyzer:
 
         stats = ExecutionStatistics()
 
-        stats.operator_count = len(dag.operators)
-        stats.edge_count = len(dag.edges)
+        stats.operator_count = len(
+            dag.operators
+        )
+
+        stats.edge_count = len(
+            dag.edges
+        )
 
         stats.root_node_count = len(
             dag.root_nodes()
@@ -168,7 +168,7 @@ class SparkAnalyzer:
         join_strategies: dict[str, int] = {}
 
         max_depth = 0
-        wide_transformation_count = 0
+        shuffle_boundary_count = 0
 
         for operator in dag.operators.values():
 
@@ -177,7 +177,9 @@ class SparkAnalyzer:
                 operator.depth,
             )
 
-            operator_name = operator.operator_type.value
+            operator_name = (
+                operator.operator_type.value
+            )
 
             operator_types[operator_name] = (
                 operator_types.get(
@@ -204,6 +206,7 @@ class SparkAnalyzer:
                 case OperatorType.EXCHANGE:
                     stats.exchange_count += 1
                     stats.shuffle_count += 1
+                    shuffle_boundary_count += 1
 
                 case OperatorType.BROADCAST_EXCHANGE:
                     stats.exchange_count += 1
@@ -253,19 +256,22 @@ class SparkAnalyzer:
                 case OperatorType.FILE_SCAN:
                     stats.scan_count += 1
 
-            if (
-                operator.transformation
-                == TransformationType.WIDE
-            ):
-                wide_transformation_count += 1
+        # --------------------------------------------------------------
+        # Canonical SparkLens stage-count definition:
+        #
+        #   initial stage + actual shuffle boundaries
+        #
+        # Aggregations may have WIDE dependencies, but they do not
+        # themselves create additional stages.
+        #
+        # BroadcastExchange is an exchange operation but is not counted
+        # here because stats.shuffle_count also treats only Exchange as
+        # a shuffle boundary.
+        # --------------------------------------------------------------
 
-        # Stage count is defined as: one initial stage, plus one additional
-        # stage for every wide (shuffle-boundary) transformation. This is
-        # the single, canonical stage-estimation formula for the analyzer.
-        # Any rule that reports a stage estimate (e.g. StageRule) MUST use
-        # this same value via `stats.stage_count` rather than recomputing
-        # its own count, so that statistics and findings never disagree.
-        stats.stage_count = 1 + wide_transformation_count
+        stats.stage_count = (
+            1 + shuffle_boundary_count
+        )
 
         stats.max_depth = max_depth
 
@@ -318,13 +324,6 @@ class SparkAnalyzer:
 
     @staticmethod
     def _default_rule_engine() -> RuleEngine:
-        """
-        Create the default SparkLens rule engine.
-
-        AQERule is intentionally NOT registered here: AQE detection is
-        owned exclusively by ExecutionQualityRule to avoid duplicate
-        findings for the same AdaptiveSparkPlan operator.
-        """
 
         return RuleEngine(
             [

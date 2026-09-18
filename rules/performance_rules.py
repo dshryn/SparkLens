@@ -9,17 +9,11 @@ from .base import Rule
 
 class PerformanceRule(Rule):
     """
-    Detects common performance characteristics of a Spark execution plan.
+    Detects aggregate execution patterns that may represent performance
+    bottlenecks.
 
-    NOTE: "Multi-Stage Aggregation" is an EXPECTED-COST / POSITIVE
-    observation, not an actionable optimization opportunity -- two or
-    more aggregation operators is exactly what Spark's standard
-    two-phase (partial + final) aggregation strategy looks like. It is
-    marked with metadata "positive": True so RecommendationEngine never
-    turns it into a generic "review the plan" recommendation. All other
-    findings in this rule (single-partition bottleneck, multiple
-    shuffles, multiple sorts) remain unmarked because they represent
-    real, evidence-backed concerns.
+    Findings describe observed patterns only. RecommendationEngine decides
+    whether an actionable recommendation is justified.
     """
 
     def apply(
@@ -29,94 +23,131 @@ class PerformanceRule(Rule):
 
         findings: list[AnalysisFinding] = []
 
-        single_partition = 0
-        shuffle_count = 0
+        single_partition_ids: list[int] = []
+        shuffle_ids: list[int] = []
         sort_count = 0
         aggregation_count = 0
 
         for operator in dag.operators.values():
 
-            if operator.operator_type == OperatorType.EXCHANGE:
+            if (
+                operator.operator_type
+                == OperatorType.EXCHANGE
+            ):
 
-                arguments = " ".join(operator.arguments).lower()
+                arguments = " ".join(
+                    operator.arguments
+                ).lower()
 
                 if "singlepartition" in arguments:
-                    single_partition += 1
+                    single_partition_ids.append(
+                        operator.operator_id
+                    )
 
-                if "shuffle" in operator.name.lower():
-                    shuffle_count += 1
+                shuffle_ids.append(
+                    operator.operator_id
+                )
 
-            elif operator.operator_type == OperatorType.SORT:
+            elif (
+                operator.operator_type
+                == OperatorType.SORT
+            ):
+
                 sort_count += 1
 
             elif operator.operator_type in (
                 OperatorType.HASH_AGGREGATE,
                 OperatorType.SORT_AGGREGATE,
             ):
+
                 aggregation_count += 1
 
-        if single_partition:
+        # --------------------------------------------------------------
+        # Single partition bottleneck
+        # --------------------------------------------------------------
+
+        if single_partition_ids:
 
             findings.append(
                 AnalysisFinding(
                     rule=self.__class__.__name__,
                     title="Single Partition Bottleneck",
                     description=(
-                        "The execution plan contains a "
-                        "SinglePartition exchange, which may reduce "
-                        "parallelism by processing data in a single "
-                        "partition."
+                        "A single-partition exchange was detected. "
+                        "This can concentrate work into one task and "
+                        "limit parallelism."
                     ),
                     severity=Severity.HIGH,
+                    operator_id=single_partition_ids[0],
+                    metadata={
+                        "operator_ids": single_partition_ids,
+                    },
                 )
             )
 
-        if shuffle_count >= 2:
+        # --------------------------------------------------------------
+        # Multiple shuffles
+        # --------------------------------------------------------------
+
+        if len(shuffle_ids) > 1:
 
             findings.append(
                 AnalysisFinding(
                     rule=self.__class__.__name__,
                     title="Multiple Shuffle Operations",
                     description=(
-                        f"The plan contains {shuffle_count} shuffle "
-                        "exchange operators. Multiple shuffles may "
-                        "increase network I/O and execution time."
+                        "Multiple shuffle exchanges are present in the "
+                        "execution plan."
                     ),
                     severity=Severity.MEDIUM,
+                    metadata={
+                        "shuffle_operator_ids": shuffle_ids,
+                    },
                 )
             )
 
-        if sort_count >= 2:
+        # --------------------------------------------------------------
+        # Multiple sorts
+        # --------------------------------------------------------------
+
+        if sort_count > 1:
 
             findings.append(
                 AnalysisFinding(
                     rule=self.__class__.__name__,
                     title="Multiple Sort Operations",
                     description=(
-                        f"The plan contains {sort_count} sort "
-                        "operators. Repeated sorting can increase "
-                        "execution time."
+                        "Multiple sort operations are present in the "
+                        "execution plan."
                     ),
                     severity=Severity.MEDIUM,
+                    metadata={
+                        "sort_count": sort_count,
+                    },
                 )
             )
 
-        if aggregation_count >= 2:
+        # --------------------------------------------------------------
+        # Multi-stage aggregation
+        # --------------------------------------------------------------
+
+        if aggregation_count > 1:
 
             findings.append(
                 AnalysisFinding(
                     rule=self.__class__.__name__,
                     title="Multi-Stage Aggregation",
                     description=(
-                        "Spark performs aggregation in multiple stages, "
-                        "which is expected for distributed execution "
-                        "(e.g. a partial map-side aggregation followed "
-                        "by a final merge aggregation)."
+                        "Multiple aggregation operators are present, "
+                        "indicating a multi-stage aggregation pipeline."
                     ),
                     severity=Severity.LOW,
                     metadata={
                         "positive": True,
                         "category": "multi_stage_aggregation",
+                        "aggregation_count": (
+                            aggregation_count
+                        ),
                     },
                 )
             )

@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 from collections import defaultdict
 
 from models.analysis_report import AnalysisReport
@@ -6,67 +8,72 @@ from models.enums import Severity
 
 class RecommendationEngine:
     """
-    Generates deterministic, evidence-aware optimization recommendations
-    from SparkLens analysis findings.
+    Converts evidence-bearing AnalysisFindings into actionable
+    recommendations.
 
-    Recommendations are suppressed whenever ExecutionQualityRule has
-    established that the underlying operator is required / already
-    optimal (e.g. a shuffle required by a two-phase aggregation or a
-    shuffle-based join, or an aggregation already using the two-phase
-    strategy). No recommendation is ever generated without a
-    corresponding finding as evidence.
+    RecommendationEngine is the final evidence gatekeeper:
+
+    - Positive findings never become recommendations.
+    - Required operators never become optimization targets.
+    - Generic recommendations cannot bypass structural evidence.
+    - Every recommendation must originate from an AnalysisFinding.
     """
+
+    _QUALITY_RULE_NAME = "ExecutionQualityRule"
 
     _RULE_RECOMMENDATIONS = {
         "BroadcastJoinRule": (
-            "Spark selected a Broadcast Hash Join. Verify that the broadcast side remains "
-            "sufficiently small as data volumes grow and continues to benefit from broadcasting."
+            "Spark selected a Broadcast Hash Join. Verify that the "
+            "broadcast side remains sufficiently small as data volumes "
+            "grow and continues to benefit from broadcasting."
         ),
         "ShuffleRule": (
-            "This shuffle is not marked as required by any known query pattern. "
-            "Review whether repartitioning, bucketing, or a broadcast join could "
-            "avoid it."
+            "This shuffle is not marked as required by any known query "
+            "pattern. Review whether repartitioning, bucketing, or a "
+            "broadcast join could avoid it."
         ),
         "ExchangeRule": (
-            "This data exchange is not marked as required by any known query "
-            "pattern. Review whether it can be avoided or consolidated."
+            "This data exchange is not marked as required by any known "
+            "query pattern. Review whether it can be avoided or "
+            "consolidated."
         ),
         "AggregationRule": (
-            "Ensure aggregation keys have suitable cardinality; consider whether "
-            "a partial (map-side) aggregation could be introduced ahead of the "
-            "shuffle."
+            "Ensure aggregation keys have suitable cardinality; consider "
+            "whether a partial (map-side) aggregation could be introduced "
+            "ahead of the shuffle."
         ),
         "PartitionRule": (
             "Review the partition count to avoid excessive task overhead."
         ),
         "SortRule": (
-            "Verify that sorting is required and avoid redundant sort operations."
+            "Verify that sorting is required and avoid redundant sort "
+            "operations."
         ),
         "PerformanceRule": (
-            "Review the execution plan for the potential bottleneck highlighted "
-            "by SparkLens."
+            "Review the execution plan for the potential bottleneck "
+            "highlighted by SparkLens."
         ),
         "PipelineRule": (
-            "Consider consolidating this long transformation pipeline where "
-            "possible to improve maintainability."
+            "Consider consolidating this long transformation pipeline "
+            "where possible to improve maintainability."
         ),
     }
 
     _JOIN_STRATEGY_RECOMMENDATIONS = {
         "BroadcastHashJoin": (
-            "Spark selected a Broadcast Hash Join. "
-            "This is typically an efficient strategy when one side of the join is small. "
-            "Verify that the broadcast side remains within Spark's broadcast threshold as data grows."
+            "Verify that the broadcast side remains sufficiently small "
+            "as data volumes grow and continues to benefit from "
+            "broadcasting."
         ),
         "SortMergeJoin": (
-            "Spark selected a Sort Merge Join, which requires a shuffle to "
-            "co-locate join keys. If one side of the join is small enough, "
-            "consider whether a broadcast join would avoid the shuffle."
+            "Review whether the sort-merge join is appropriate for the "
+            "data sizes and join characteristics, and verify that the "
+            "associated shuffles and sorts are justified."
         ),
         "ShuffleHashJoin": (
-            "Spark selected a Shuffle Hash Join, which requires a shuffle to "
-            "co-locate join keys. Review join-key distribution and, if one "
-            "side is small enough, consider a broadcast join instead."
+            "Review whether the shuffle hash join is appropriate for the "
+            "data sizes and join characteristics, particularly the "
+            "partitioning and build-side requirements."
         ),
     }
 
@@ -77,23 +84,23 @@ class RecommendationEngine:
         Severity.LOW: 3,
     }
 
-    _QUALITY_RULE_NAME = "ExecutionQualityRule"
-
     @classmethod
-    def generate(cls, report: AnalysisReport) -> list[str]:
-        """
-        Generate deterministic optimization recommendations.
+    def generate(
+        cls,
+        report: AnalysisReport,
+    ) -> list[str]:
 
-        Recommendations are:
-        - Evidence-aware: suppressed when ExecutionQualityRule shows the
-          underlying operator/pattern is required or already optimal.
-        - Ordered by highest finding severity.
-        - Deduplicated by rule and join strategy.
-        - Aggregated when multiple findings originate from the same rule.
-        """
+        required_operator_ids = (
+            cls._collect_required_operator_ids(
+                report
+            )
+        )
 
-        required_operator_ids = cls._collect_required_operator_ids(report)
-        positive_categories = cls._collect_positive_categories(report)
+        positive_categories = (
+            cls._collect_positive_categories(
+                report
+            )
+        )
 
         eligible_findings = [
             finding
@@ -102,39 +109,81 @@ class RecommendationEngine:
                 finding,
                 required_operator_ids,
                 positive_categories,
+                report,
             )
         ]
 
-        grouped_findings: dict[tuple[str, str | None], list] = defaultdict(list)
+        grouped_findings: dict[
+            tuple[str, str | None],
+            list,
+        ] = defaultdict(list)
 
         for finding in eligible_findings:
 
-            join_strategy = finding.metadata.get("join_strategy")
-            pattern = finding.metadata.get("pattern")
+            join_strategy = finding.metadata.get(
+                "join_strategy"
+            )
 
-            if isinstance(join_strategy, str):
-                group_key: str | None = join_strategy
-            elif isinstance(pattern, str):
+            pattern = finding.metadata.get(
+                "pattern"
+            )
+
+            if isinstance(
+                join_strategy,
+                str,
+            ):
+
+                group_key: str | None = (
+                    join_strategy
+                )
+
+            elif isinstance(
+                pattern,
+                str,
+            ):
+
                 group_key = pattern
+
             else:
+
                 group_key = None
 
-            grouped_findings[(finding.rule, group_key)].append(finding)
+            grouped_findings[
+                (
+                    finding.rule,
+                    group_key,
+                )
+            ].append(
+                finding
+            )
 
-        recommendations: list[tuple[int, str]] = []
+        recommendations: list[
+            tuple[int, str]
+        ] = []
 
-        for (rule, group_key), findings in grouped_findings.items():
+        for (
+            rule,
+            group_key,
+        ), findings in grouped_findings.items():
 
             if (
                 rule == "BroadcastJoinRule"
-                and group_key in cls._JOIN_STRATEGY_RECOMMENDATIONS
+                and group_key
+                in cls._JOIN_STRATEGY_RECOMMENDATIONS
             ):
-                recommendation = cls._JOIN_STRATEGY_RECOMMENDATIONS[
-                    group_key
-                ]
+
+                recommendation = (
+                    cls._JOIN_STRATEGY_RECOMMENDATIONS[
+                        group_key
+                    ]
+                )
+
             else:
-                recommendation = cls._RULE_RECOMMENDATIONS.get(
-                    rule
+
+                recommendation = (
+                    cls._RULE_RECOMMENDATIONS.get(
+                        rule
+                    )
                 )
 
             if recommendation is None:
@@ -155,7 +204,9 @@ class RecommendationEngine:
                 subject = (
                     group_key
                     if group_key
-                    else rule.removesuffix("Rule")
+                    else rule.removesuffix(
+                        "Rule"
+                    )
                 )
 
                 recommendation = (
@@ -175,17 +226,19 @@ class RecommendationEngine:
         )
 
         if not recommendations:
+
             return [
                 (
-                    "No optimization recommendations were generated. "
-                    "The analyzed plan shows only expected execution costs "
-                    "and/or already-optimal patterns."
+                    "No optimization opportunities were identified. "
+                    "The analyzed plan shows only expected, required, "
+                    "or already-optimal execution patterns."
                 )
             ]
 
         return [
             recommendation
-            for _, recommendation in recommendations
+            for _, recommendation
+            in recommendations
         ]
 
     @classmethod
@@ -193,20 +246,20 @@ class RecommendationEngine:
         cls,
         report: AnalysisReport,
     ) -> set[int]:
-        """
-        Operator ids that ExecutionQualityRule has established as required
-        (e.g. a shuffle needed by a two-phase aggregation or a shuffle-based
-        join). Recommendations must never target these operators.
-        """
 
         required_ids: set[int] = set()
 
         for finding in report.findings:
 
-            if finding.rule != cls._QUALITY_RULE_NAME:
+            if (
+                finding.rule
+                != cls._QUALITY_RULE_NAME
+            ):
                 continue
 
-            if not finding.metadata.get("required"):
+            if not finding.metadata.get(
+                "required"
+            ):
                 continue
 
             operator_id = finding.metadata.get(
@@ -214,8 +267,14 @@ class RecommendationEngine:
                 finding.operator_id,
             )
 
-            if isinstance(operator_id, int):
-                required_ids.add(operator_id)
+            if isinstance(
+                operator_id,
+                int,
+            ):
+
+                required_ids.add(
+                    operator_id
+                )
 
         return required_ids
 
@@ -224,23 +283,36 @@ class RecommendationEngine:
         cls,
         report: AnalysisReport,
     ) -> set[str]:
-        """
-        Positive pattern categories established by ExecutionQualityRule
-        (e.g. "two_phase_aggregation"). Used to suppress recommendations
-        for patterns that are already optimal.
-        """
 
         categories: set[str] = set()
 
         for finding in report.findings:
 
-            if finding.rule != cls._QUALITY_RULE_NAME:
+            if (
+                finding.rule
+                != cls._QUALITY_RULE_NAME
+            ):
                 continue
 
-            category = finding.metadata.get("category")
+            # A category only suppresses recommendations when the finding
+            # explicitly establishes that the category is positive.
+            if not finding.metadata.get(
+                "positive"
+            ):
+                continue
 
-            if isinstance(category, str):
-                categories.add(category)
+            category = finding.metadata.get(
+                "category"
+            )
+
+            if isinstance(
+                category,
+                str,
+            ):
+
+                categories.add(
+                    category
+                )
 
         return categories
 
@@ -250,58 +322,96 @@ class RecommendationEngine:
         finding,
         required_operator_ids: set[int],
         positive_categories: set[str],
+        report: AnalysisReport,
     ) -> bool:
-        """
-        Determines whether a finding may still produce a recommendation
-        once evidence of required/optimal patterns is taken into account.
-        """
 
-        # Never generate recommendations directly from quality findings;
-        # they are explanatory, not actionable.
-        if finding.rule == cls._QUALITY_RULE_NAME:
+        # Quality findings explain expected/required behavior and are never
+        # directly converted into optimization recommendations.
+        if (
+            finding.rule
+            == cls._QUALITY_RULE_NAME
+        ):
             return False
 
-        # Explicitly positive findings from any rule are never actionable.
-        if finding.metadata.get("positive"):
+        # Explicit positive evidence always blocks recommendation generation.
+        if finding.metadata.get(
+            "positive"
+        ):
+
             return False
 
-        # Suppress ANY recommendation targeting an operator that
-        # ExecutionQualityRule has established as required, regardless of
-        # which rule produced the finding (e.g. ShuffleRule, ExchangeRule,
-        # PartitionRule, SortRule, ...). A required operator is required
-        # no matter which downstream rule happens to flag it.
-        if finding.operator_id in required_operator_ids:
+        # A finding attached directly to an operator already proven
+        # structurally required cannot become an optimization target.
+        if (
+            finding.operator_id is not None
+            and finding.operator_id
+            in required_operator_ids
+        ):
+
             return False
 
-        normalized_rule = cls._normalize_rule_name(finding.rule)
+        # Once two-phase aggregation is established, generic aggregation
+        # advice such as "consider introducing partial aggregation" is no
+        # longer applicable.
+        if (
+            cls._normalize_rule_name(
+                finding.rule
+            )
+            == "aggregationrule"
+            and "two_phase_aggregation"
+            in positive_categories
+        ):
 
-        # Suppress aggregation recommendations if the aggregation already
-        # follows the optimal two-phase strategy.
-        if normalized_rule == "AggregationRule":
+            return False
 
-            if "two_phase_aggregation" in positive_categories:
+        # A PerformanceRule summary can have operator_id=None. If it
+        # summarizes multiple shuffle operations, inspect the specific
+        # shuffle ids attached to that finding. If every underlying shuffle
+        # is already proven required, the summary must not generate generic
+        # shuffle optimization advice.
+        if (
+            finding.rule
+            == "PerformanceRule"
+            and finding.title
+            == "Multiple Shuffle Operations"
+        ):
+
+            shuffle_ids = (
+                finding.metadata.get(
+                    "shuffle_operator_ids"
+                )
+            )
+
+            if (
+                isinstance(
+                    shuffle_ids,
+                    list,
+                )
+                and shuffle_ids
+                and all(
+                    isinstance(
+                        operator_id,
+                        int,
+                    )
+                    and operator_id
+                    in required_operator_ids
+                    for operator_id
+                    in shuffle_ids
+                )
+            ):
+
                 return False
 
         return True
 
     @staticmethod
     def _normalize_rule_name(
-        rule: str,
+        rule_name: str,
     ) -> str:
-        """
-        Normalizes rule names to the canonical Rule class name.
-
-        Examples:
-            Shuffle -> ShuffleRule
-            ShuffleRule -> ShuffleRule
-            Broadcast Join -> BroadcastJoinRule
-            BroadcastJoinRule -> BroadcastJoinRule
-        """
-
-        if rule.endswith("Rule"):
-            return rule
 
         return (
-            rule.replace(" ", "")
-            + "Rule"
+            rule_name
+            .replace("_", "")
+            .replace("-", "")
+            .lower()
         )
