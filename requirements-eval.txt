@@ -1,0 +1,3 @@
+# Evaluator-only dependencies (the SparkLens package itself uses pyproject.toml).
+# Install with: python -m pip install -r requirements-eval.txt
+scikit-learn>=1.4

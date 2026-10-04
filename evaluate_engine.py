@@ -17,6 +17,7 @@ Usage:
   python evaluate_engine.py predict    # run `cli.main analyze <plan> --eval` for every plan
   python evaluate_engine.py evaluate   # precision / recall / F1 / final score (+ delta vs baseline)
   python evaluate_engine.py baseline   # evaluate and freeze eval_baseline.json
+  python evaluate_engine.py validate   # measure the evaluator itself on known-answer test cases
   python evaluate_engine.py selftest   # offline sanity checks of the matcher and metrics
 """
 
@@ -26,6 +27,7 @@ import hashlib
 import json
 import math
 import os
+import random
 import re
 import subprocess
 import sys
@@ -68,9 +70,9 @@ ENGINE_PATHS = ["analyzer", "rules", "models", "services"]
 # them, and are lower-cased at the end.
 LEXICON: list[tuple[str, str]] = [
     # Absence of data movement (before polarity so "unnecessary" is still visible)
-    (r"(?:without|no|avoids?|avoiding|avoided|never|zero)(?: any| an?| the)?"
-     r"(?: intermediate| extra| additional| further| unnecessary)?"
-     r" (?:shuffl(?:e|es|ed|ing)|exchanges?|data movement|network transfer)", "noshuffle"),
+    (r"(?:without|no|avoids?|avoiding|avoided|never|zero|remov(?:e|es|ed|ing)|eliminat(?:e|es|ed|ing))"
+     r"(?: (?:any|an?|the|both|all|these|those|of|one|\d+|join|extra|additional|further|unnecessary|intermediate))*"
+     r" (?:shuffl(?:e|es|ed|ing)|exchanges?|data movement|moving data|moving rows|network transfer)", "noshuffle"),
 
     # Polarity
     (r"not (?:strictly |really |actually |structurally )?(?:required|needed|necessary)"
@@ -78,7 +80,7 @@ LEXICON: list[tuple[str, str]] = [
     (r"not an? (?:optimi[sz]ation (?:target|opportunity)|problem|issue|concern)", "required"),
     (r"(?:structurally )?(?:required|necessary|mandatory|unavoidable|needed|inherent)", "required"),
     (r"inefficient|suboptimal|wasteful|costly|expensive", "inefficient"),
-    (r"efficient|optimal", "efficient"),
+    (r"efficient|optimal|cheap|cheaper|inexpensive", "efficient"),
     (r"disabled|turned off|switched off|deactivated|not enabled|(?:is|are|was|were) off", "disabled"),
     (r"enabled|turned on|switched on|activated", "enabled"),
     (r"bottleneck|choke point|no parallelism|serial(?:ly|ised|ized|ises|izes)?"
@@ -88,7 +90,7 @@ LEXICON: list[tuple[str, str]] = [
     (r"broadcast nested loop join|nested loop join|nested loop|bnlj", "nestedloopjoin"),
     (r"cartesian product|cartesian join|cartesian|cross join|cross product", "cartesianjoin"),
     (r"shuffled hash join|shuffle hash join|shj", "shuffledhashjoin"),
-    (r"sort merge join|sort merge|merge join|smj", "sortmergejoin"),
+    (r"sort merge join|sort merge|merge joined|merge join|smj", "sortmergejoin"),
     (r"broadcast hash join|broadcast join|broadcasted join|bhj|map side join", "broadcastjoin"),
     (r"broadcast(?:ing|s|ed)?(?: exchange)?", "broadcast"),
     (r"(?:left )?semi join|left semi", "semijoin"),
@@ -101,12 +103,15 @@ LEXICON: list[tuple[str, str]] = [
     (r"reus(?:e|es|ed|ing)", "reuse"),
     (r"coalesc\w*", "coalesce"),
     (r"repartition by range|range partition(?:ing|ed|s)?|rangepartitioning", "rangepartitioning"),
-    (r"hash partition(?:ing|ed|s)?|hashpartitioning|hash distribut\w*", "hashpartitioning"),
+    (r"hash partition(?:ing|ed|s)?|hashpartitioning|hash distribut\w*|hash (?:shuffl\w*|exchanges?)"
+     r"|(?:by|using|with) a hash of|hash(?:es|ed|ing)(?: (?:every|each|all|the|raw|rows?))* (?:on|by)",
+     "hashpartitioning"),
     (r"round robin(?: partition(?:ing|ed)?)?|roundrobinpartitioning", "roundrobinpartitioning"),
-    (r"single partition|singlepartition|one partition|1 partition|single task|one task|1 task"
-     r"|single executor|one executor|single core|one core", "singlepartition"),
+    (r"single partition|singlepartition|(?:into|to) (?:one|1) partition|partitions? into one|single task|one task"
+     r"|1 task|single executor|one executor|single core|one core", "singlepartition"),
     (r"shuffle (?:exchange|write|read|map stage)(?: sink| source)?|exchanges?|shuffles?|shuffled|shuffling"
-     r"|reshuffl\w*|redistribut\w*|repartition\w*|data movement|network transfer", "shuffle"),
+     r"|reshuffl\w*|redistribut\w*|repartition\w*|data movement|network transfer"
+     r"|mov(?:e|es|ed|ing) (?:the |all |any |every )?(?:data|rows?)", "shuffle"),
 
     # Aggregation
     (r"(?:2|multi|multiple) ?(?:phase|stage|step)s? aggregat\w*|(?:2|multi|multiple) ?(?:phase|step)s?"
@@ -118,7 +123,7 @@ LEXICON: list[tuple[str, str]] = [
     (r"(?:final|merge|reduce side|post shuffle) (?:hash )?aggregat\w*|final merge|finalmerge"
      r"|merge (?:sum|count|avg|average)", "finalagg"),
     (r"count distinct|countdistinct|distinct count", "countdistinct"),
-    (r"distinct|deduplicat\w*|dedup\w*|drop duplicates", "distinct"),
+    (r"distinct|deduplicat\w*|dedup\w*|drop duplicates|(?:remov|eliminat)\w* duplicates?", "distinct"),
     (r"expand|rollup|cube|grouping sets?", "expand"),
     (r"object hash aggregat\w*|collect (?:list|set)", "objecthashagg"),
     (r"sort aggregat\w*|hash aggregat\w*|aggregat\w*|group by|groupby|grouped|grouping", "aggregation"),
@@ -127,13 +132,16 @@ LEXICON: list[tuple[str, str]] = [
     (r"take ordered and project|top n|top k", "topn"),
     (r"sort within partitions|sortwithinpartitions|partition local sort|local sort|per partition sort", "localsort"),
     (r"order by|orderby|sorts?|sorted|sorting|ordering|ordered", "sort"),
-    (r"ascending|asc|(?:lowest|smallest|earliest) first", "ascending"),
-    (r"descending|desc|(?:highest|largest|biggest|latest) first", "descending"),
+    (r"ascending|asc|(?:lowest|smallest|earliest)(?: \w+)? first|from (?:lowest|smallest) to (?:highest|largest)",
+     "ascending"),
+    (r"descending|desc|(?:highest|largest|biggest|latest)(?: \w+)? first|from (?:highest|largest) to (?:lowest|smallest)",
+     "descending"),
     (r"collect limit|global limit|local limit|limit(?:s|ed)?", "limit"),
 
     # Stages & pipelines
     (r"whole stage code ?gen\w*|code ?gen(?:eration)?", "codegen"),
-    (r"stage boundar(?:y|ies)|stage breaks?|new stages?", "stageboundary"),
+    (r"stage boundar(?:y|ies)|stage breaks?|new stages?|(?:ends?|closes?|stops?) (?:one |a |the )?stages?"
+     r"|stages? (?:ends?|stops?)", "stageboundary"),
     (r"stages?", "stage"),
     (r"wide (?:transformation|dependency|dependencies|operator)s?", "wide"),
     (r"narrow(?: transformations?| operators?| dependency| dependencies)?", "narrow"),
@@ -148,6 +156,8 @@ LEXICON: list[tuple[str, str]] = [
      r"|pushdown|early filter\w*", "pushdown"),
     (r"columnar to row|columnartorow", "columnartorow"),
     (r"file scan|filescan|table scan|scann?(?:ed|ing|s)?", "scan"),
+    (r"csv", "csv"),
+    (r"parquet", "parquet"),
     (r"filters?|filtered|filtering|predicates?|where clause", "filter"),
 
     # Other operators & problems
@@ -163,7 +173,7 @@ LEXICON: list[tuple[str, str]] = [
 
     # Advice rather than observation
     (r"(?:would|could|can|might) (?:avoid|remove|eliminate|reduce|restore|save|help|improve)"
-     r"|should be avoided|consider(?:ing)?|recommend\w*|suggest\w*", "recommend"),
+     r"|should be avoided|consider(?:ing)?|recommend\w*|suggest\w*|would|could", "recommend"),
 ]
 
 _LEXICON = [(re.compile(rf"\b(?:{pattern})\b"), f" {concept.upper()} ") for pattern, concept in LEXICON]
@@ -198,11 +208,22 @@ PARENTS = {
 }
 
 # Concept pairs with opposite meaning: similar claims that disagree on these do not match.
-OPPOSITES = [
+POLARITY_PAIRS = [
     ("required", "redundant"),
     ("efficient", "inefficient"),
     ("enabled", "disabled"),
     ("ascending", "descending"),
+]
+OPPOSITES = POLARITY_PAIRS + [("noshuffle", "shuffle")]
+
+# Mutually exclusive alternatives: a join has one strategy, an exchange one partitioning
+# scheme. Two claims naming different members of the same family state different facts.
+FAMILIES = [
+    {"sortmergejoin", "broadcastjoin", "shuffledhashjoin", "nestedloopjoin", "cartesianjoin"},
+    {"semijoin", "antijoin", "outerjoin"},
+    {"hashpartitioning", "rangepartitioning", "roundrobinpartitioning", "singlepartition"},
+    {"expand", "generate"},
+    {"csv", "parquet"},
 ]
 
 NUMBER_WORDS = {
@@ -210,11 +231,16 @@ NUMBER_WORDS = {
     "eight": "8", "nine": "9", "ten": "10", "eleven": "11", "twelve": "12",
 }
 
-NEGATIONS = {"no", "not", "never", "without", "nor", "cannot"}
+NEGATIONS = {"no", "not", "never", "without", "nor", "cannot", "neither", "nothing", "unable"}
 HEDGES = {"whether"}
 NEGATION_WINDOW = 3   # "not a real bottleneck": the negation reaches the first concept within 3 words
 HEDGE_WINDOW = 6      # "whether this shuffle is required": the hedge reaches the next polarity concept
-POLARITY = {c for pair in OPPOSITES for c in pair}
+POLARITY = {c for pair in POLARITY_PAIRS for c in pair}
+_IDENTIFIER = re.compile(r"\b[a-z][a-z0-9]*(?:_[a-z0-9]+)+\b")   # column names such as customer_id
+
+# Concepts too general to tell two claims' topics apart (almost every plan has them).
+GENERIC_CONCEPTS = {"shuffle", "noshuffle", "stage", "join", "aggregation", "sort", "filter", "scan",
+                    "pipeline", "limit", "recommend"}
 
 DOMAIN_STOPWORDS = {
     "spark", "sparklens", "plan", "plans", "query", "queries", "job", "jobs", "physical",
@@ -303,6 +329,8 @@ def normalize(text: str) -> list[str]:
         if target and "_" not in target[0]:
             target[0] = f"{prefix}_{target[0]}"
             target[1] = False
+            if target[0] == "not_shuffle":   # "never shuffled", "does not shuffle" = no shuffle
+                target[0] = "noshuffle"
     return [token for token, _ in content]
 
 
@@ -320,6 +348,12 @@ def _is_marked_concept(token: str) -> bool:
 class Claim:
     text: str
     tokens: list[str]
+    inherited: tuple[str, ...] = ()   # concepts taken over from the previous sentence via a pronoun
+
+    @property
+    def own(self) -> set[str]:
+        """Tokens the sentence states itself (without pronoun context)."""
+        return set(self.tokens) - set(self.inherited)
 
     @property
     def concepts(self) -> str:
@@ -347,6 +381,17 @@ class Claim:
         """Numbers stated as a stage count, e.g. '3 stages'."""
         return {t for t, nxt in zip(self.tokens, self.tokens[1:]) if t.isdigit() and nxt == "stage"}
 
+    @property
+    def identifiers(self) -> set[str]:
+        """Column names written in snake_case, e.g. customer_id (plural forms folded: product_ids)."""
+        return {i[:-1] if i.endswith("s") else i for i in _IDENTIFIER.findall(self.text)}
+
+    @property
+    def subjects(self) -> set[str]:
+        """The specific Spark things the claim is about (concepts and what they imply, minus generic ones)."""
+        found = set(self.concepts.split())
+        return found - POLARITY - GENERIC_CONCEPTS
+
 
 def split_claims(paragraph: str) -> list[Claim]:
     """Splits a paragraph into de-duplicated atomic claims (sentences, split again at causal connectives)."""
@@ -363,25 +408,36 @@ def split_claims(paragraph: str) -> list[Claim]:
         if not sentence or _NO_ISSUES.match(sentence):
             continue
         tokens = normalize(sentence)
+        inherited: list[str] = []
         if _ANAPHORA.match(sentence):
             # Inherit only the previous claim's plain concepts (never its numbers).
-            tokens += [t for t in dict.fromkeys(previous) if t in CONCEPTS and t not in tokens]
+            inherited = [t for t in dict.fromkeys(previous) if t in CONCEPTS and t not in tokens]
+            tokens += inherited
         previous = tokens
         key = sentence.lower().rstrip(".!?; ")
         if key in seen or not tokens:
             continue
         seen.add(key)
-        claims.append(Claim(sentence, tokens))
+        claims.append(Claim(sentence, tokens, tuple(inherited)))
     return claims
 
 
 def conflict(a: Claim, b: Claim) -> str:
-    """Returns why two similar claims still disagree ('' if they do not)."""
+    """Why claim a (the one being judged) is not backed by a similar-looking claim b ('' if it is)."""
     if (a.stage_counts or b.stage_counts) and not (a.stage_counts & b.stage_counts):
         return "stage count mismatch"
-    if a.numbers and b.numbers and not (a.numbers & b.numbers):
-        return "numeric conflict"
+    if a.numbers - b.numbers:
+        return "number not backed"
     ta, tb = set(a.tokens), set(b.tokens)
+    if ("recommend" in ta) != ("recommend" in tb):
+        return "advice vs observation"
+    for family in FAMILIES:
+        if (a.own & family) - tb:
+            return "different alternative"   # a names a join strategy / partitioning / ... that b doesn't back
+    if a.identifiers and b.identifiers and not a.identifiers & b.identifiers:
+        return "different columns"
+    if a.subjects and b.subjects and not a.subjects & b.subjects:
+        return "different subject"           # e.g. "AQE is disabled" vs "Broadcasting is disabled"
     # Opposite concepts, a negated concept ("not_x"), or a hedged one ("maybe_x", from "whether x").
     pairs = OPPOSITES + [(c, f"not_{c}") for c in CONCEPTS] + [(c, f"maybe_{c}") for c in POLARITY]
     for positive, negative in pairs:
@@ -750,38 +806,23 @@ def print_report(rows: list[RowScore], summary: dict, args) -> None:
 
 
 def write_review(rows: list[RowScore]) -> None:
-    """Per-claim verdicts for manual revalidation; manual_verdict values survive re-runs."""
-    manual = {}
-    if REVIEW_CSV.exists():
-        with open(REVIEW_CSV, newline="", encoding="utf-8-sig") as f:
-            for rec in csv.DictReader(f):
-                if (rec.get("manual_verdict") or "").strip():
-                    manual[(rec["id"], rec["side"], rec["claim"])] = rec["manual_verdict"].strip().upper()
-
+    """Per-claim verdicts, so every number in the report can be traced to sentences."""
     records = []
     for row in rows:
         for side, results, hit, miss in (("predicted", row.predicted, "TP", "FP"),
                                          ("expected", row.expected, "TP", "FN")):
             for r in results:
-                key = (row.row_id, side, r.claim.text)
                 records.append({
                     "id": row.row_id, "side": side, "claim": r.claim.text,
                     "best_match": r.best_match, "similarity": f"{r.similarity:.3f}",
                     "verdict": hit if r.matched else miss, "reason": r.reason,
-                    "manual_verdict": manual.get(key, ""),
                 })
 
     with open(REVIEW_CSV, "w", newline="", encoding="utf-8") as f:
         writer = csv.DictWriter(f, fieldnames=list(records[0]) if records else ["id"])
         writer.writeheader()
         writer.writerows(records)
-    print(f"\nWrote per-claim verdicts to {REVIEW_CSV.name} (fill manual_verdict to revalidate)")
-
-    reviewed = [r for r in records if r["manual_verdict"]]
-    if reviewed:
-        agree = sum(r["manual_verdict"] == r["verdict"] for r in reviewed)
-        print(f"Manual revalidation: {agree}/{len(reviewed)} verdicts agree "
-              f"({100 * agree / len(reviewed):.1f}%)")
+    print(f"\nWrote per-claim verdicts to {REVIEW_CSV.name}")
 
 
 def compare_with_baseline(rows: list[RowScore], summary: dict, config: dict) -> None:
@@ -834,13 +875,18 @@ def cmd_baseline(args) -> None:
         sys.exit("Refusing to save a baseline while predictions are missing.")
     print_report(rows, summary, args)
     write_review(rows)
+    validation, _, _ = run_validation(args)
+    print(f"\nEvaluator accuracy on {validation['overall']['cases']} known-answer cases: "
+          f"{validation['overall']['accuracy']:.1%} (run `validate` for details)")
     baseline = {
         "created": datetime.now().isoformat(timespec="seconds"),
         "engine_version": engine_version(),
         "expected_sha256": sha256(EXPECTED_CSV),
         "predicted_sha256": sha256(PREDICTED_CSV),
+        "validation_sha256": sha256(VALIDATION_CSV),
         "config": _config(args),
         "summary": summary,
+        "validation": validation,
         "rows": {
             r.row_id: {"expected": r.n_exp, "predicted": r.n_pred, "fp": r.fp, "fn": r.fn,
                        "precision": r.precision, "recall": r.recall, "f1": r.f1}
@@ -849,6 +895,423 @@ def cmd_baseline(args) -> None:
     }
     BASELINE_JSON.write_text(json.dumps(baseline, indent=2) + "\n", encoding="utf-8")
     print(f"\nSaved baseline to {BASELINE_JSON.name} (engine {baseline['engine_version']})")
+
+
+# ---------------------------------------------------------------------------
+# Validation suite: known-answer tests for the evaluator itself
+# ---------------------------------------------------------------------------
+#
+# Every case pairs a hypothesis claim with a premise paragraph and an answer that is
+# known by construction, so the evaluator's own accuracy is measured without human
+# labelling. LLM-written cases (paraphrases, role swaps) come from eval_validation.csv;
+# rule-based cases are generated here from the ground truth and the plan text.
+
+VALIDATION_CSV = ROOT / "eval_validation.csv"
+VALIDATION_FAILURES_CSV = ROOT / "eval_validation_failures.csv"
+DEV_PLAN_LIMIT = 25        # plans 01-25 form the development split, plans 26-50 the held-out test split
+TRANSPLANTS_PER_PLAN = 3   # cross-plan cases per plan and direction
+
+# Plan-text evidence for operator-level concepts. A claim that plainly asserts one of these
+# concepts is false for a plan whose text has no such operator - no judgement involved.
+PLAN_EVIDENCE = {
+    "sortmergejoin": r"SortMergeJoin",
+    "broadcastjoin": r"BroadcastHashJoin",
+    "shuffledhashjoin": r"ShuffledHashJoin",
+    "nestedloopjoin": r"BroadcastNestedLoopJoin",
+    "cartesianjoin": r"CartesianProduct",
+    "semijoin": r"LeftSemi",
+    "antijoin": r"LeftAnti",
+    "outerjoin": r"(?:Full|Left|Right)Outer",
+    "hashpartitioning": r"hashpartitioning\(",
+    "rangepartitioning": r"rangepartitioning\(",
+    "roundrobinpartitioning": r"RoundRobinPartitioning",
+    "reusedexchange": r"ReusedExchange",
+    "window": r"\bWindow \(",
+    "expand": r"\bExpand \(",
+    "generate": r"\bGenerate \(",
+    "union": r"\bUnion \(",
+    "topn": r"TakeOrderedAndProject",
+    "objecthashagg": r"ObjectHashAggregate",
+    "countdistinct": r"count\(distinct",
+    "pythonudf": r"(?:BatchEval|ArrowEval)Python",
+    "photon": r"Photon",
+}
+
+# Rewrites that turn a true claim into its opposite (first matching rule wins, case-insensitive).
+POLARITY_FLIPS = [
+    (r"\bnot a real bottleneck\b", "a real bottleneck"),
+    (r"\bnot a bottleneck\b", "a bottleneck"),
+    (r"\ba (?:severe|serious) bottleneck\b", "not a bottleneck"),
+    (r"\bneither side needs an exchange\b", "both sides need an exchange"),
+    (r"\bneeds no shuffle\b", "needs a shuffle"),
+    (r"\bno additional exchange\b", "an additional exchange"),
+    (r"\bno extra exchange\b", "an extra exchange"),
+    (r"\bwith no data movement\b", "with heavy data movement"),
+    (r"\bwithout moving data\b", "by moving data"),
+    (r"\bwithout a shuffle\b", "with a shuffle"),
+    (r"\bwithout shuffling\b", "with shuffling"),
+    (r"\bwithout a sort step\b", "with a sort step"),
+    (r"\bwith no shuffle\b", "with a shuffle"),
+    (r"\bno shuffle\b", "a shuffle"),
+    (r"\bnever shuffled\b", "shuffled"),
+    (r"\bcannot be broadcast\b", "can be broadcast"),
+    (r"\bcannot be coalesced\b", "can be coalesced"),
+    (r"\bcannot split\b", "can split"),
+    (r"\bnot sorted\b", "sorted"),
+    (r"\bis structurally required\b", "is not required"),
+    (r"\b(is|are) required\b", r"\1 not required"),
+    (r"\bis needed\b", "is not needed"),
+    (r"\bunavoidable\b", "avoidable"),
+    (r"\bavoidable\b", "unavoidable"),
+    (r"\bunnecessary\b", "necessary"),
+    (r"\bnecessary\b", "unnecessary"),
+    (r"\bredundant\b", "required"),
+    (r"\bis enabled\b", "is disabled"),
+    (r"\b(is|are) disabled\b", r"\1 enabled"),
+    (r"\bturned off\b", "turned on"),
+    (r"\bturned on\b", "turned off"),
+    (r"\bswitched off\b", "switched on"),
+    (r"\bis off\b", "is on"),
+    (r"\bdescending\b", "ascending"),
+    (r"\bascending\b", "descending"),
+    (r"\bvery expensive\b", "cheap"),
+    (r"\bmore expensive\b", "cheaper"),
+    (r"\bcostly\b", "cheap"),
+    (r"\bis cheap\b", "is expensive"),
+]
+
+# Swap one Spark concept for a sibling; only used when the plan has no evidence of the new one.
+CONCEPT_SWAPS = [
+    (r"\bsort[- ]merge join\b", "broadcast hash join", r"BroadcastHashJoin"),
+    (r"\bbroadcast nested loop join\b", "sort-merge join", r"SortMergeJoin"),
+    (r"\bbroadcast hash joins?\b", "sort-merge join", r"SortMergeJoin"),
+    (r"\bshuffled hash join\b", "sort-merge join", r"SortMergeJoin"),
+    (r"\bCartesianProduct\b", "BroadcastHashJoin", r"BroadcastHashJoin"),
+    (r"\bleft semi\b", "left anti", r"LeftAnti"),
+    (r"\bleft anti\b", "left semi", r"LeftSemi"),
+    (r"\bfull outer join\b", "left semi join", r"LeftSemi"),
+    (r"\bhash-partition", "range-partition", r"rangepartitioning\("),
+    (r"\bhash partitioning\b", "range partitioning", r"rangepartitioning\("),
+    (r"\brange-partition", "hash-partition", r"hashpartitioning\("),
+    (r"\brange partitioning\b", "hash partitioning", r"hashpartitioning\("),
+    (r"\bround-robin\b", "range-partitioned", r"rangepartitioning\("),
+    (r"\bSinglePartition exchange\b", "RoundRobinPartitioning exchange", r"RoundRobinPartitioning"),
+    (r"\bReusedExchange\b", "BroadcastExchange", r"BroadcastExchange"),
+    (r"\bObjectHashAggregate\b", "SortAggregate", r"SortAggregate"),
+    (r"\bExpand\b", "Generate", r"\bGenerate \("),
+    (r"\bGenerate\b", "Expand", r"\bExpand \("),
+    (r"\bParquet\b", "CSV", r"Scan csv"),
+    (r"\bCSV\b", "Parquet", r"Scan parquet"),
+    (r"\bTakeOrderedAndProject\b", "global Sort with a range shuffle", r"rangepartitioning\("),
+]
+
+_NUMBER = re.compile(r"\d+(?:,\d{3})*")
+# A new SparkLens finding starts after a sentence end with "Title: " (used to reorder findings).
+_FINDING_START = re.compile(r"(?<=[.!?])\s+(?=[A-Z][\w /()'-]{2,60}?: )")
+
+
+@dataclass
+class Case:
+    category: str
+    direction: str          # "support": precision side, "cover": recall side
+    row_id: str
+    hypothesis: Claim
+    premise: list[Claim]
+    should_match: bool
+    source: str             # "llm" or "rule"
+
+    @property
+    def split(self) -> str:
+        return "dev" if int(self.row_id[:2]) <= DEV_PLAN_LIMIT else "test"
+
+
+def _replace(text: str, m: re.Match, replacement: str) -> str:
+    if m.group(0)[:1].isupper():
+        replacement = replacement[:1].upper() + replacement[1:]
+    return text[:m.start()] + replacement + text[m.end():]
+
+
+def _rewrite(original: Claim, text: str) -> Claim:
+    """A rewritten claim keeps whatever context its original inherited from a previous sentence."""
+    tokens = normalize(text)
+    inherited = [t for t in original.inherited if t not in tokens]
+    return Claim(text, tokens + inherited, tuple(inherited))
+
+
+def _corruptions(text: str, plan: str):
+    """Yields (category, corrupted text, changed target) - each corruption makes the claim false."""
+    if _NUMBER.search(text):
+        bumped = _NUMBER.sub(lambda m: str(int(m.group(0).replace(",", "")) + 1), text)
+        yield "number_change", bumped, ("numbers", set(_NUMBER.findall(text.replace(",", ""))))
+    for pattern, replacement in POLARITY_FLIPS:
+        m = re.search(pattern, text, re.IGNORECASE)
+        if m:
+            yield "polarity_flip", _replace(text, m, m.expand(replacement)), ("text", m.group(0))
+            break
+    for pattern, replacement, evidence in CONCEPT_SWAPS:
+        m = re.search(pattern, text, re.IGNORECASE)
+        if m and not re.search(evidence, plan):
+            yield "concept_swap", _replace(text, m, replacement), ("text", m.group(0))
+            break
+
+
+def _appears_elsewhere(target: tuple, other_texts: list[str]) -> bool:
+    """True if another claim of the plan states the same thing, so a recall-side label would be unsure."""
+    kind, value = target
+    if kind == "numbers":
+        return any(value & set(_NUMBER.findall(t.replace(",", ""))) for t in other_texts)
+    return any(value.lower() in t.lower() for t in other_texts)
+
+
+def _asserted_operators(claim: Claim) -> list[str]:
+    """Operator-level concepts a claim plainly asserts (not negated, hedged, advised or via a pronoun)."""
+    tokens = set(claim.tokens)
+    if _ANAPHORA.match(claim.text) or "recommend" in tokens or any(_is_marked_concept(t) for t in tokens):
+        return []
+    return sorted(t for t in tokens if t in PLAN_EVIDENCE)
+
+
+def _missing_from(concepts: list[str], plan: str) -> list[str]:
+    return [c for c in concepts if not re.search(PLAN_EVIDENCE[c], plan)]
+
+
+def _transplants(ids, claims, plans, paraphrased) -> list[Case]:
+    """Claims moved to a plan whose text has no operator for them: must not match."""
+    cases = []
+    n = len(ids)
+    for k, row_id in enumerate(ids):
+        # precision side: another plan's claim, judged against this plan's ground truth
+        picked = 0
+        for step in range(1, n):
+            other = ids[(k + 7 * step) % n]          # 7 and 50 are coprime: visits every other plan
+            claim = next((c for c in claims[other]
+                          if _missing_from(_asserted_operators(c), plans[row_id])), None)
+            if claim:
+                cases.append(Case("cross_plan", "support", row_id, claim, claims[row_id], False, "rule"))
+                picked += 1
+            if picked == TRANSPLANTS_PER_PLAN:
+                break
+        # recall side: this plan's true claim, judged against another plan's (paraphrased) analysis
+        picked = 0
+        for claim in claims[row_id]:
+            operators = _asserted_operators(claim)
+            if not operators or _missing_from(operators, plans[row_id]):
+                continue
+            for step in range(1, n):
+                other = ids[(k + 7 * step) % n]
+                if paraphrased[other] and _missing_from(operators, plans[other]):
+                    premise = split_claims(" ".join(paraphrased[other]))
+                    cases.append(Case("cross_plan", "cover", row_id, claim, premise, False, "rule"))
+                    picked += 1
+                    break
+            if picked == TRANSPLANTS_PER_PLAN:
+                break
+    return cases
+
+
+def build_validation_cases(expected_rows: list[dict]) -> tuple[list[Case], list[str]]:
+    notes = []
+    ids = [r["id"] for r in expected_rows]
+    plans = {r["id"]: r["script"] for r in expected_rows}
+    claims = {r["id"]: split_claims(r["expected_outcome"]) for r in expected_rows}
+
+    records = []
+    if VALIDATION_CSV.exists():
+        with open(VALIDATION_CSV, newline="", encoding="utf-8-sig") as f:
+            records = list(csv.DictReader(f))
+    else:
+        notes.append(f"{VALIDATION_CSV.name} not found: running rule-based cases only")
+
+    paraphrase_of = {(r["row_id"], r["claim"]): r["rewrite"] for r in records if r["kind"] == "paraphrase"}
+    known = {(row_id, c.text) for row_id in ids for c in claims[row_id]}
+    stale = sum((r["row_id"], r["claim"]) not in known for r in records)
+    paraphrased = {}
+    missing = 0
+    for row_id in ids:
+        texts = [paraphrase_of.get((row_id, c.text)) for c in claims[row_id]]
+        missing += texts.count(None)
+        paraphrased[row_id] = texts if None not in texts else None
+    if missing:
+        notes.append(f"{missing} ground-truth claims have no paraphrase in {VALIDATION_CSV.name}")
+    if stale:
+        notes.append(f"{stale} cases in {VALIDATION_CSV.name} refer to claims no longer in the ground truth")
+
+    cases = []
+    for row_id in ids:
+        truth, paras = claims[row_id], paraphrased[row_id]
+        for i, claim in enumerate(truth):
+            if paras:
+                cases.append(Case("paraphrase", "support", row_id, _rewrite(claim, paras[i]), truth, True, "llm"))
+                cases.append(Case("paraphrase", "cover", row_id, claim,
+                                  split_claims(" ".join(paras)), True, "llm"))
+            others = [c.text for j, c in enumerate(truth) if j != i]
+            for category, corrupted, target in _corruptions(claim.text, plans[row_id]):
+                cases.append(Case(category, "support", row_id, _rewrite(claim, corrupted), truth, False, "rule"))
+                if paras and not _appears_elsewhere(target, others):
+                    premise = split_claims(" ".join(paras[:i] + [corrupted] + paras[i + 1:]))
+                    cases.append(Case(category, "cover", row_id, claim, premise, False, "rule"))
+
+    for r in records:
+        if r["kind"] != "role_swap" or (r["row_id"], r["claim"]) not in known:
+            continue
+        original = next(c for c in claims[r["row_id"]] if c.text == r["claim"])
+        cases.append(Case("role_swap", "support", r["row_id"], _rewrite(original, r["rewrite"]),
+                          claims[r["row_id"]], r["label"] == "match", "llm"))
+
+    cases += _transplants(ids, claims, plans, paraphrased)
+    return cases, notes
+
+
+def _judge(case: Case, vectorizer: ClaimVectorizer, threshold: float) -> ClaimResult:
+    if case.direction == "support":
+        scores = vectorizer.support([case.hypothesis], case.premise)
+    else:
+        scores = vectorizer.coverage([case.hypothesis], case.premise)
+    return _best_matches([case.hypothesis], case.premise, scores, threshold)[0]
+
+
+def _invariance(expected_rows, predicted, vectorizer, threshold) -> tuple[int, list[str]]:
+    """Reordering, duplicating or re-spacing SparkLens findings must not change a plan's scores."""
+    checks, failed = 0, []
+    for r in expected_rows:
+        text = " ".join(predicted.get(r["id"], "").split())
+        if not text:
+            continue
+        truth = split_claims(r["expected_outcome"])
+        findings = [f for f in _FINDING_START.split(text) if f.strip()]
+        shuffled = findings[:]
+        random.Random(int(r["id"][:2])).shuffle(shuffled)
+        variants = {
+            "reversed order": " ".join(reversed(findings)),
+            "shuffled order": " ".join(shuffled),
+            "duplicated findings": " ".join(f for f in findings for _ in (0, 1)),
+            "extra whitespace": "\n   ".join(findings),
+        }
+        base = score_row(r["id"], truth, split_claims(text), vectorizer, threshold)
+        for name, variant in variants.items():
+            checks += 1
+            row = score_row(r["id"], truth, split_claims(variant), vectorizer, threshold)
+            if (row.precision, row.recall) != (base.precision, base.recall):
+                failed.append(f"{r['id']}: {name}")
+    return checks, failed
+
+
+def _bounds(expected_rows, predicted, vectorizer, threshold) -> dict:
+    """Ground truth as prediction must score 1, silence 0, and another plan's output far below real output."""
+    ids = [r["id"] for r in expected_rows]
+    truth = {r["id"]: split_claims(r["expected_outcome"]) for r in expected_rows}
+
+    def score(texts: dict[str, str]) -> dict:
+        return summarize([score_row(i, truth[i], split_claims(texts[i]), vectorizer, threshold) for i in ids])
+
+    ceiling = score({r["id"]: r["expected_outcome"] for r in expected_rows})
+    floor = score({i: "No issues found." for i in ids})
+    bounds = {
+        "ceiling_precision": ceiling["micro"]["precision"],
+        "ceiling_recall": ceiling["micro"]["recall"],
+        "floor_final": floor["final_score"],
+    }
+    if all(predicted.get(i, "").strip() for i in ids):
+        shuffled = []
+        for seed in range(5):
+            order = ids[:]
+            random.Random(seed).shuffle(order)
+            shuffled.append(score({i: predicted[j] for i, j in zip(ids, order)})["final_score"])
+        bounds["real_final"] = score(predicted)["final_score"]
+        bounds["shuffled_final"] = sum(shuffled) / len(shuffled)
+    bounds["passed"] = (bounds["ceiling_precision"] == 1.0 and bounds["ceiling_recall"] == 1.0
+                        and bounds["floor_final"] == 0.0
+                        and bounds.get("shuffled_final", 0.0) < bounds.get("real_final", 1.0))
+    return bounds
+
+
+def _rates(results: list[tuple[Case, ClaimResult]]) -> dict:
+    positives = [(c, r) for c, r in results if c.should_match]
+    negatives = [(c, r) for c, r in results if not c.should_match]
+    correct = sum(r.matched == c.should_match for c, r in results)
+    return {
+        "cases": len(results),
+        "accuracy": correct / len(results) if results else 1.0,
+        "false_accept_rate": sum(r.matched for _, r in negatives) / len(negatives) if negatives else 0.0,
+        "false_reject_rate": sum(not r.matched for _, r in positives) / len(positives) if positives else 0.0,
+    }
+
+
+def run_validation(args) -> tuple[dict, list[tuple[Case, ClaimResult]], list[str]]:
+    expected_rows = load_expected()
+    predicted = load_predicted()
+    cases, notes = build_validation_cases(expected_rows)
+    vectorizer = ClaimVectorizer(args.vectorizer).fit(
+        [c for r in expected_rows for c in split_claims(r["expected_outcome"])]
+    )
+    results = [(case, _judge(case, vectorizer, args.threshold)) for case in cases]
+
+    groups: dict[str, list] = {}
+    for case, result in results:
+        groups.setdefault(f"{case.category} / {case.direction}", []).append((case, result))
+    checks, failed = _invariance(expected_rows, predicted, vectorizer, args.threshold)
+    summary = {
+        "overall": _rates(results),
+        "dev": _rates([(c, r) for c, r in results if c.split == "dev"]),
+        "test": _rates([(c, r) for c, r in results if c.split == "test"]),
+        "llm_written": _rates([(c, r) for c, r in results if c.source == "llm"]),
+        "rule_based": _rates([(c, r) for c, r in results if c.source == "rule"]),
+        "by_category": {name: _rates(items) for name, items in sorted(groups.items())},
+        "invariance": {"checks": checks, "passed": checks - len(failed), "failed": failed},
+        "bounds": _bounds(expected_rows, predicted, vectorizer, args.threshold),
+    }
+    return summary, results, notes
+
+
+def print_validation(summary: dict, args) -> None:
+    overall = summary["overall"]
+    print(f"\n--- Evaluator validation: {overall['cases']} known-answer cases "
+          f"({args.vectorizer}, threshold={args.threshold}) ---\n")
+    print(f"{'category / direction':<30} {'cases':>5}  {'accuracy':>8}  {'false-accept':>12}  {'false-reject':>12}")
+    for name, rates in summary["by_category"].items():
+        print(f"{name:<30} {rates['cases']:>5}  {rates['accuracy']:>8.1%}  "
+              f"{rates['false_accept_rate']:>12.1%}  {rates['false_reject_rate']:>12.1%}")
+    print()
+    for label, key in (("Dev split (plans 01-25)", "dev"), ("Test split (plans 26-50)", "test"),
+                       ("LLM-written cases", "llm_written"), ("Rule-based cases", "rule_based")):
+        rates = summary[key]
+        print(f"{label:<30} {rates['cases']:>5}  {rates['accuracy']:>8.1%}  "
+              f"{rates['false_accept_rate']:>12.1%}  {rates['false_reject_rate']:>12.1%}")
+    print(f"\nOVERALL ACCURACY: {overall['accuracy']:.1%}   "
+          f"false-accept {overall['false_accept_rate']:.1%} (would inflate SparkLens's score)   "
+          f"false-reject {overall['false_reject_rate']:.1%} (would deflate it)")
+
+    inv = summary["invariance"]
+    print(f"\nInvariance (reorder / duplicate / re-space findings): {inv['passed']}/{inv['checks']} "
+          f"{'PASS' if inv['passed'] == inv['checks'] else 'FAIL'}")
+    for failure in inv["failed"][:10]:
+        print(f"  changed: {failure}")
+    b = summary["bounds"]
+    line = (f"Bounds: ground truth as prediction P={b['ceiling_precision']:.3f} R={b['ceiling_recall']:.3f}, "
+            f"'No issues found.' final={b['floor_final']:.3f}")
+    if "real_final" in b:
+        line += f", other plans' output {b['shuffled_final']:.3f} < real {b['real_final']:.3f}"
+    print(f"{line}  {'PASS' if b['passed'] else 'FAIL'}")
+
+
+def write_validation_failures(results: list[tuple[Case, ClaimResult]]) -> None:
+    failures = [(c, r) for c, r in results if r.matched != c.should_match]
+    with open(VALIDATION_FAILURES_CSV, "w", newline="", encoding="utf-8") as f:
+        writer = csv.writer(f)
+        writer.writerow(["row_id", "split", "category", "direction", "source", "should_match",
+                         "evaluator_matched", "score", "hypothesis", "best_premise_match", "reason"])
+        for c, r in failures:
+            writer.writerow([c.row_id, c.split, c.category, c.direction, c.source, c.should_match,
+                             r.matched, f"{r.similarity:.3f}", c.hypothesis.text, r.best_match, r.reason])
+    print(f"\nWrote {len(failures)} wrongly judged cases to {VALIDATION_FAILURES_CSV.name}")
+
+
+def cmd_validate(args) -> None:
+    summary, results, notes = run_validation(args)
+    for note in notes:
+        print(f"Note: {note}")
+    print_validation(summary, args)
+    write_validation_failures(results)
 
 
 # ---------------------------------------------------------------------------
@@ -988,6 +1451,7 @@ def main() -> None:
 
     for name, help_text in (("evaluate", "score predictions vs expected outcomes"),
                             ("baseline", "evaluate and freeze the result as eval_baseline.json"),
+                            ("validate", "measure the evaluator itself on known-answer test cases"),
                             ("selftest", "offline sanity checks of the matcher and metrics")):
         p = sub.add_parser(name, help=help_text)
         p.add_argument("--vectorizer", choices=["tfidf", "count"], default="tfidf")
@@ -1000,6 +1464,7 @@ def main() -> None:
         "predict": cmd_predict,
         "evaluate": cmd_evaluate,
         "baseline": cmd_baseline,
+        "validate": cmd_validate,
         "selftest": cmd_selftest,
     }[args.command](args)
 

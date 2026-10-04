@@ -1,0 +1,350 @@
+kind,row_id,claim,rewrite,label,style
+paraphrase,01_range_projection,The plan is a simple projection over a generated range of order ids.,This query just selects columns from a generated sequence of order ids.,match,natural
+paraphrase,01_range_projection,All operators are narrow and are fused into a single pipeline with no shuffle.,"Every operator is narrow, and they all run fused in one pipeline without any data shuffling.",match,natural
+paraphrase,01_range_projection,The whole query runs as 1 stage.,Estimated Stage Count: Spark executes this plan in 1 stage.,match,engine
+paraphrase,02_filter_projection,"A filter on amount is applied directly on top of the range source, before any other work.",The amount predicate is evaluated right at the generated source before anything else happens.,match,natural
+paraphrase,02_filter_projection,The filter and projection are narrow operators pipelined together with no data movement.,Filtering and column selection are narrow steps executed in one pipeline with no shuffle.,match,natural
+paraphrase,02_filter_projection,The query executes as 1 stage.,Only 1 stage is needed to execute this query.,match,natural
+paraphrase,03_limit,Results are capped by a CollectLimit of 20 rows,A CollectLimit operator restricts the output to 20 rows.,match,natural
+paraphrase,03_limit,only the first rows are fetched to the driver.,Just the leading rows are brought back to the driver.,match,natural
+paraphrase,03_limit,The projection over the range is narrow and needs no shuffle.,The range projection is narrow and involves no exchange of data.,match,natural
+paraphrase,03_limit,The job runs as 1 stage.,Estimated Stage Count: The plan completes in 1 stage.,match,engine
+paraphrase,04_union_two_sources,"Two range sources are combined with a Union, which concatenates their partitions without moving data.","A Union appends the partitions of the two generated sources one after another, with no data movement.",match,natural
+paraphrase,04_union_two_sources,Each branch is a narrow projection and neither side needs an exchange.,Both inputs only go through narrow projections and neither requires a shuffle.,match,natural
+paraphrase,04_union_two_sources,The union runs as 1 stage.,The whole union executes in 1 stage.,match,natural
+paraphrase,05_sort_within_partitions,Rows are sorted by amount in ascending order within each partition only.,"Within every partition, rows are ordered by amount ascending, and nothing is sorted across partitions.",match,natural
+paraphrase,05_sort_within_partitions,"Because the sort is local to each partition, the plan contains no shuffle.",The partition-local sort needs no shuffle at all.,match,natural
+paraphrase,05_sort_within_partitions,The query runs as 1 stage.,Estimated Stage Count: Spark needs 1 stage for this plan.,match,engine
+paraphrase,06_long_narrow_pipeline,"The plan is a long pipeline of 11 narrow operators, mixing filters, projections, an explode and a sample.","Filters, projections, an explode and a sampling step form one long chain of 11 narrow operators.",match,natural
+paraphrase,06_long_narrow_pipeline,No shuffle occurs anywhere in this chain.,Nothing in this operator chain triggers a shuffle.,match,natural
+paraphrase,06_long_narrow_pipeline,The explode (Generate) turns each input row into 2 rows before the later filters.,A Generate step from explode doubles every incoming row into 2 rows ahead of the remaining filters.,match,natural
+paraphrase,06_long_narrow_pipeline,Everything executes in 1 stage.,Estimated Stage Count: The plan is expected to contain 1 Spark stage.,match,engine
+paraphrase,07_groupby_sum,Revenue per product_id is computed with a two-phase hash aggregation: a partial sum on the map side and a final sum after the shuffle.,Two-Phase Aggregation: Spark sums revenue per product_id partially before the exchange and finishes the sum after it.,match,engine
+paraphrase,07_groupby_sum,Rows are hash-partitioned by product_id into 200 shuffle partitions.,The shuffle distributes rows across 200 partitions using a hash of product_id.,match,natural
+paraphrase,07_groupby_sum,This exchange is required so that all rows of a product meet in the same partition for the final aggregate.,Collecting all rows of a product into one partition for the final aggregate makes this exchange necessary.,match,natural
+paraphrase,07_groupby_sum,The query runs as 2 stages.,Execution is split into 2 stages.,match,natural
+paraphrase,07_groupby_sum,Each shuffle exchange marks a stage boundary.,Stage Boundary Detected: every shuffle exchange starts a new stage.,match,engine
+paraphrase,07_groupby_sum,Adaptive query execution is enabled,AQE is switched on.,match,natural
+paraphrase,07_groupby_sum,Spark can coalesce the shuffle partitions at runtime.,At runtime Spark is able to merge small shuffle partitions together.,match,natural
+paraphrase,08_groupby_multi_agg_aqe_off,"count, avg and max per customer are computed in two phases, with partial aggregates before the shuffle and merged results after it.","Per-customer count, average and maximum are first aggregated partially, then the partial results are merged after the exchange.",match,natural
+paraphrase,08_groupby_multi_agg_aqe_off,The exchange hash-partitions rows on customer_id and is needed for the final aggregation.,"Hashing on customer_id, the exchange redistributes rows and is necessary for the final aggregate.",match,natural
+paraphrase,08_groupby_multi_agg_aqe_off,The plan has 2 stages.,Estimated Stage Count: The execution plan contains 2 Spark stages.,match,engine
+paraphrase,08_groupby_multi_agg_aqe_off,Each shuffle exchange marks a stage boundary.,A new stage begins at every shuffle exchange.,match,natural
+paraphrase,08_groupby_multi_agg_aqe_off,AQE is turned off,Adaptive query execution is disabled.,match,natural
+paraphrase,08_groupby_multi_agg_aqe_off,the shuffle keeps a fixed 200 partitions that cannot be coalesced at runtime.,The exchange stays at a static 200 partitions with no runtime coalescing.,match,natural
+paraphrase,09_distinct,"distinct() is executed as a hash aggregate on product_id with no aggregate functions, first locally per partition and then globally.","To deduplicate product_id, Spark runs a function-free hash aggregate twice: once inside each partition and once globally.",match,natural
+paraphrase,09_distinct,Partial deduplication before the exchange reduces how many rows are shuffled.,Removing duplicates locally ahead of the shuffle cuts down the number of rows that are exchanged.,match,natural
+paraphrase,09_distinct,The shuffle hash-partitions by product_id and is structurally required to remove duplicates across partitions.,Eliminating duplicates across partitions makes the hash exchange on product_id mandatory.,match,natural
+paraphrase,09_distinct,The query has 2 stages.,This query is executed in 2 stages.,match,natural
+paraphrase,09_distinct,Each shuffle exchange marks a stage boundary.,Stage boundaries sit exactly at the shuffle exchanges.,match,natural
+paraphrase,09_distinct,AQE is enabled for this plan.,AQE Enabled: adaptive query execution is active for this plan.,match,engine
+paraphrase,10_count_distinct,"countDistinct is planned as 2 rounds of aggregation: first deduplicating customer and product pairs, then counting them per customer.","The distinct count needs 2 aggregation rounds, one removing duplicate customer-product pairs and another counting them for each customer.",match,natural
+paraphrase,10_count_distinct,"This needs 2 shuffles, one hash-partitioned on customer_id and product_id and one on customer_id alone.","There are 2 hash exchanges: the first keyed on customer_id plus product_id, the second keyed only on customer_id.",match,natural
+paraphrase,10_count_distinct,The extra exchange makes a distinct count more expensive than a plain count.,The additional shuffle makes counting distinct values more expensive than an ordinary count.,match,natural
+paraphrase,10_count_distinct,The plan runs as 3 stages.,Estimated Stage Count: Spark will run 3 stages for this plan.,match,engine
+paraphrase,10_count_distinct,Each shuffle exchange marks a stage boundary.,Every exchange that shuffles data ends one stage and starts the next.,match,natural
+paraphrase,10_count_distinct,AQE is enabled.,Adaptive execution is turned on.,match,natural
+paraphrase,11_global_sum,"The total is a global aggregation with no grouping keys, computed as partial sums per partition followed by a final sum.",The overall total is an ungrouped aggregation: every partition computes a partial sum and a single final sum combines them.,match,natural
+paraphrase,11_global_sum,Partial results are gathered into a single partition through a SinglePartition exchange.,A SinglePartition exchange collects all the partial sums into one partition.,match,natural
+paraphrase,11_global_sum,Only one partial row per input partition reaches that exchange,Each input partition sends just one partial row into the exchange.,match,natural
+paraphrase,11_global_sum,it is cheap here and not a real bottleneck.,That single-partition step is inexpensive here and does not act as a bottleneck.,match,natural
+paraphrase,11_global_sum,The query has 2 stages.,2 stages are needed for this query.,match,natural
+paraphrase,11_global_sum,Each shuffle exchange marks a stage boundary.,Stage Boundary Detected: the shuffle exchange introduces a new Spark stage.,match,engine
+paraphrase,11_global_sum,AQE is enabled.,Adaptive query execution is switched on.,match,natural
+paraphrase,12_having_then_order,Orders are counted per customer_id with a partial count before the shuffle and a final count after it.,Counting orders by customer_id happens partially ahead of the exchange and is finalized after it.,match,natural
+paraphrase,12_having_then_order,The first exchange hash-partitions on customer_id and is required by the aggregation.,"The first exchange, a hash partitioning on customer_id, is mandatory for the aggregation.",match,natural
+paraphrase,12_having_then_order,The HAVING-style filter on the count runs after the final aggregate.,"Once the final aggregation finishes, the count is filtered like a HAVING clause.",match,natural
+paraphrase,12_having_then_order,A second exchange range-partitions the filtered rows for the global ORDER BY on n in descending order.,"Range Partitioning Detected: a second shuffle range-partitions the remaining rows so they can be globally sorted by n, highest first.",match,engine
+paraphrase,12_having_then_order,The plan runs as 3 stages.,Execution takes 3 stages.,match,natural
+paraphrase,12_having_then_order,Each shuffle exchange marks a stage boundary.,Stage boundaries are created by the shuffle exchanges.,match,natural
+paraphrase,12_having_then_order,AQE is enabled.,AQE is turned on.,match,natural
+paraphrase,13_collect_list,"collect_list forces an ObjectHashAggregate instead of a plain hash aggregate, again split into partial and final phases.","Aggregation: collect_list makes Spark use an ObjectHashAggregate rather than a normal hash aggregate, still with partial and final phases.",match,engine
+paraphrase,13_collect_list,"Rows are hash-partitioned by customer_id for the final collection, and that shuffle is required.",The final collection depends on a necessary hash shuffle keyed on customer_id.,match,natural
+paraphrase,13_collect_list,Collecting whole lists per key keeps every product_id in memory and can be memory-heavy for customers with many orders.,"Building complete lists for each customer holds all product_ids in memory, which can strain memory for customers with lots of orders.",match,natural
+paraphrase,13_collect_list,The query has 2 stages.,The query is split into 2 stages.,match,natural
+paraphrase,13_collect_list,Each shuffle exchange marks a stage boundary.,Stage boundaries correspond to the shuffle exchanges.,match,natural
+paraphrase,13_collect_list,AQE is enabled.,AQE Enabled: Adaptive Query Execution is enabled for this query.,match,engine
+paraphrase,14_rollup,"The rollup is implemented with an Expand operator that emits each row once per grouping set, 3 copies here, before aggregation.","Spark implements the rollup by expanding every row into 3 copies, one per grouping set, ahead of the aggregation.",match,natural
+paraphrase,14_rollup,Expand inflates the data volume that goes into the partial aggregate and the shuffle.,"Because of Expand, more data flows into the partial aggregation and the exchange.",match,natural
+paraphrase,14_rollup,"The exchange hash-partitions on status, product_id and the grouping id, and is required for the final sum.","The final sum needs a mandatory hash exchange keyed on status, product_id and the grouping id.",match,natural
+paraphrase,14_rollup,The plan runs as 2 stages.,Estimated Stage Count: The plan is expected to need 2 stages.,match,engine
+paraphrase,14_rollup,Each shuffle exchange marks a stage boundary.,A shuffle exchange is where one stage stops and the next begins.,match,natural
+paraphrase,14_rollup,AQE is enabled.,Adaptive query execution is enabled.,match,natural
+paraphrase,15_cube_aqe_off,cube() expands every row into 4 grouping-set copies through Expand before counting.,"Before counting, the cube uses Expand to turn each row into 4 copies, one for every grouping set.",match,natural
+paraphrase,15_cube_aqe_off,Partial counts are computed before the shuffle and merged by a final aggregate after it.,Two-Phase Aggregation: counts are pre-aggregated before the exchange and combined by a final aggregation afterwards.,match,engine
+paraphrase,15_cube_aqe_off,The hash-partitioned exchange on the grouping columns is required by the aggregation.,A hash exchange on the grouping columns is necessary for the aggregation.,match,natural
+paraphrase,15_cube_aqe_off,There are 2 stages.,The plan executes as 2 stages.,match,natural
+paraphrase,15_cube_aqe_off,Each shuffle exchange marks a stage boundary.,Each exchange that shuffles data begins a new stage.,match,natural
+paraphrase,15_cube_aqe_off,Adaptive execution is disabled,AQE is switched off.,match,natural
+paraphrase,15_cube_aqe_off,the shuffle keeps a static 200 partitions.,The exchange always uses 200 partitions.,match,natural
+paraphrase,16_repartition_then_groupby_same_key,"The explicit repartition(64, customer_id) hash-partitions the raw rows by customer_id.","Calling repartition(64, customer_id) hashes every raw row on customer_id into 64 partitions.",match,natural
+paraphrase,16_repartition_then_groupby_same_key,"Because the data is already distributed on the grouping key, the aggregation reuses that partitioning and no additional exchange is added.","The data is already partitioned by the grouping key, and the aggregation reuses it without adding another exchange.",match,natural
+paraphrase,16_repartition_then_groupby_same_key,Both aggregation phases run after the shuffle,The partial and the final aggregation both happen after the exchange.,match,natural
+paraphrase,16_repartition_then_groupby_same_key,no map-side partial aggregation reduces the volume that is shuffled.,No pre-aggregation happens on the map side to shrink the shuffled data.,match,natural
+paraphrase,16_repartition_then_groupby_same_key,The plan has 2 stages.,The query needs 2 stages.,match,natural
+paraphrase,16_repartition_then_groupby_same_key,Each shuffle exchange marks a stage boundary.,Stage Boundary Detected: the exchange is a wide transformation that starts a new stage.,match,engine
+paraphrase,16_repartition_then_groupby_same_key,AQE is enabled.,AQE is activated for this query.,match,natural
+paraphrase,17_broadcast_join_auto,"Spark joins orders with the small customers table using a broadcast hash join, building the hash table from the customers side.",Broadcast Hash Join Detected: the small customers table is the build side of a broadcast hash join with orders.,match,engine
+paraphrase,17_broadcast_join_auto,The customers side is sent to every executor through a BroadcastExchange,A BroadcastExchange ships the customers data to all executors.,match,natural
+paraphrase,17_broadcast_join_auto,the large orders side is never shuffled.,The big orders input stays where it is without any shuffle.,match,natural
+paraphrase,17_broadcast_join_auto,"The main job runs as 1 stage, with the broadcast built separately.","Apart from the separately built broadcast, the main job is 1 stage.",match,natural
+paraphrase,17_broadcast_join_auto,AQE is enabled.,Adaptive query execution is enabled for this join.,match,natural
+paraphrase,18_broadcast_hint_aqe_off,A broadcast hint makes Spark use a broadcast hash join with the 100-row products table as the build side.,"Because of the broadcast hint, Spark builds the hash table from the 100-row products table in a broadcast hash join.",match,natural
+paraphrase,18_broadcast_hint_aqe_off,The products table is broadcast,Spark sends the products table to every executor.,match,natural
+paraphrase,18_broadcast_hint_aqe_off,the orders side is joined in place without shuffling.,"Orders are joined where they already sit, with no shuffle.",match,natural
+paraphrase,18_broadcast_hint_aqe_off,The whole join runs as 1 stage.,Estimated Stage Count: The join completes in 1 Spark stage.,match,engine
+paraphrase,18_broadcast_hint_aqe_off,AQE is disabled for this query.,Adaptive query execution is turned off here.,match,natural
+paraphrase,19_sort_merge_join_small_side,Broadcasting is switched off,Broadcast joins are disabled for this query.,match,natural
+paraphrase,19_sort_merge_join_small_side,Spark falls back to a sort-merge join between orders and customers.,Sort Merge Join Detected: orders and customers are joined with an SMJ.,match,engine
+paraphrase,19_sort_merge_join_small_side,Both inputs are hash-partitioned on customer_id and shuffled so matching keys meet in the same partition.,Orders and customers are each shuffled by a hash of customer_id so equal keys end up together.,match,natural
+paraphrase,19_sort_merge_join_small_side,Each side is then sorted on customer_id before the merge.,"Before merging, both inputs get sorted by customer_id.",match,natural
+paraphrase,19_sort_merge_join_small_side,These 2 shuffles are required by the sort-merge join strategy.,The merge join strategy makes both of these 2 shuffles necessary.,match,natural
+paraphrase,19_sort_merge_join_small_side,"The customers side has only 10,000 rows","Customers contributes just 10,000 rows.",match,natural
+paraphrase,19_sort_merge_join_small_side,a broadcast hash join would avoid both shuffles and sorts.,Broadcasting customers instead would remove both shuffles and sorts.,match,natural
+paraphrase,19_sort_merge_join_small_side,The plan runs as 3 stages.,3 stages are needed.,match,natural
+paraphrase,19_sort_merge_join_small_side,Each shuffle exchange marks a stage boundary.,Every shuffle exchange closes a stage.,match,natural
+paraphrase,19_sort_merge_join_small_side,AQE is enabled.,AQE is enabled here.,match,natural
+paraphrase,20_sort_merge_join_two_large,orders and events are both large,Both orders and events are big tables.,match,natural
+paraphrase,20_sort_merge_join_two_large,Spark uses a sort-merge join on customer_id.,The join on customer_id is executed as a sort merge join.,match,natural
+paraphrase,20_sort_merge_join_two_large,Each side is hash-partitioned into 200 partitions and sorted on the join key.,Both inputs are shuffled by hash into 200 partitions and then sorted by customer_id.,match,natural
+paraphrase,20_sort_merge_join_two_large,The shuffles on both sides are necessary,Shuffling both inputs is unavoidable.,match,natural
+paraphrase,20_sort_merge_join_two_large,neither input is small enough to broadcast.,Neither table is small enough to be broadcast.,match,natural
+paraphrase,20_sort_merge_join_two_large,The plan has 3 stages.,Estimated Stage Count: The execution plan is expected to contain 3 Spark stages.,match,engine
+paraphrase,20_sort_merge_join_two_large,Each shuffle exchange marks a stage boundary.,Stage boundaries appear wherever a shuffle exchange occurs.,match,natural
+paraphrase,20_sort_merge_join_two_large,AQE is enabled and may switch strategy or split skewed partitions at runtime.,"With AQE enabled, Spark can change the join strategy or split skewed partitions while the query runs.",match,natural
+paraphrase,21_shuffled_hash_join_hint,"The shuffle_hash hint selects a shuffled hash join, with the customers side used to build the in-memory hash table.","Shuffle Hash Join Detected: following the shuffle_hash hint, Spark builds the in-memory hash table from customers.",match,engine
+paraphrase,21_shuffled_hash_join_hint,Both sides are hash-partitioned on customer_id and joined without a sort step.,Both inputs are hashed on customer_id and joined with no sorting.,match,natural
+paraphrase,21_shuffled_hash_join_hint,The exchanges are required so that equal keys land in the same partition.,"Matching keys must meet in one partition, which makes the exchanges mandatory.",match,natural
+paraphrase,21_shuffled_hash_join_hint,The plan runs as 3 stages.,This plan takes 3 stages.,match,natural
+paraphrase,21_shuffled_hash_join_hint,Each shuffle exchange marks a stage boundary.,Each shuffle exchange starts a new stage.,match,natural
+paraphrase,21_shuffled_hash_join_hint,AQE is enabled.,Adaptive query execution is turned on.,match,natural
+paraphrase,22_left_semi_broadcast,The left semi join keeps orders whose customer_id exists in the filtered customers set.,Only orders with a customer_id present in the filtered customers survive the left semi join.,match,natural
+paraphrase,22_left_semi_broadcast,"It is executed as a broadcast hash join, broadcasting the small filtered customers side.",Spark runs it as a broadcast hash join and broadcasts the small filtered customers input.,match,natural
+paraphrase,22_left_semi_broadcast,No shuffle of the orders table is needed.,The orders table never has to be shuffled.,match,natural
+paraphrase,22_left_semi_broadcast,The job runs as 1 stage.,1 stage is enough for the job.,match,natural
+paraphrase,22_left_semi_broadcast,AQE is enabled.,AQE Enabled: Spark has adaptive query execution enabled.,match,engine
+paraphrase,23_left_anti_sort_merge,The left anti join returns orders without a matching customer in the filtered segment.,Orders that have no matching customer in the filtered segment are what the left anti join outputs.,match,natural
+paraphrase,23_left_anti_sort_merge,With broadcasting disabled it runs as a sort-merge join.,"Since broadcast is turned off, the join is a sort merge join.",match,natural
+paraphrase,23_left_anti_sort_merge,"Both inputs are hash-partitioned and sorted on customer_id, and these shuffles are required by the join.",The join makes it mandatory to hash-shuffle and sort both inputs on customer_id.,match,natural
+paraphrase,23_left_anti_sort_merge,The filtered customers side is small,Only a small number of filtered customers remain.,match,natural
+paraphrase,23_left_anti_sort_merge,broadcasting it would remove the shuffle of the large orders side.,"If the customers side were broadcast, the big orders input would not need a shuffle.",match,natural
+paraphrase,23_left_anti_sort_merge,The plan has 3 stages.,Spark executes 3 stages here.,match,natural
+paraphrase,23_left_anti_sort_merge,Each shuffle exchange marks a stage boundary.,Stage Boundary Detected: each shuffle exchange introduces a new stage.,match,engine
+paraphrase,23_left_anti_sort_merge,AQE is enabled.,Adaptive query execution is enabled.,match,natural
+paraphrase,24_full_outer_join,A full outer join cannot be broadcast,Spark is unable to broadcast a full outer join.,match,natural
+paraphrase,24_full_outer_join,Spark uses a sort-merge join between orders and events.,Sort Merge Join Detected: orders and events are combined with a sort merge join.,match,engine
+paraphrase,24_full_outer_join,Both sides are shuffled with hash partitioning on customer_id and sorted before merging.,Each input is hash-shuffled on customer_id and sorted ahead of the merge.,match,natural
+paraphrase,24_full_outer_join,The shuffles are unavoidable for this join type.,This kind of join makes the shuffles necessary.,match,natural
+paraphrase,24_full_outer_join,The plan runs as 3 stages.,There are 3 stages in this plan.,match,natural
+paraphrase,24_full_outer_join,Each shuffle exchange marks a stage boundary.,The shuffle exchanges are the stage boundaries.,match,natural
+paraphrase,24_full_outer_join,AQE is enabled.,AQE is switched on.,match,natural
+paraphrase,25_non_equi_join,The join condition amount < min_amount has no equality key,The condition amount < min_amount contains no equality predicate.,match,natural
+paraphrase,25_non_equi_join,Spark falls back to a broadcast nested loop join.,Nested Loop Join Detected: Spark has to use a broadcast nested loop join.,match,engine
+paraphrase,25_non_equi_join,"Every order row is compared against every broadcast products row, which is costly and scales with the product of both input sizes.","Each order is checked against all broadcast product rows, an expensive operation whose cost grows with both input sizes multiplied.",match,natural
+paraphrase,25_non_equi_join,The small products side is broadcast,The products input is small and gets broadcast.,match,natural
+paraphrase,25_non_equi_join,no shuffle is needed.,The join does not require any shuffle.,match,natural
+paraphrase,25_non_equi_join,The query runs as 1 stage.,The query needs 1 stage.,match,natural
+paraphrase,25_non_equi_join,AQE is enabled.,AQE is turned on for this query.,match,natural
+paraphrase,26_cartesian_product,crossJoin with broadcasting disabled produces a CartesianProduct between orders and customer segments.,"Cartesian Product Detected: with broadcasting turned off, the cross join between orders and customer segments becomes a CartesianProduct.",match,engine
+paraphrase,26_cartesian_product,Every pair of rows is emitted,All row combinations are produced.,match,natural
+paraphrase,26_cartesian_product,the output size is the product of both inputs and very expensive.,"The result grows to the size of both inputs multiplied, which is extremely costly.",match,natural
+paraphrase,26_cartesian_product,A cartesian product should be avoided unless the cross join is truly intended.,"Unless a cross join is really wanted, the cartesian product should be avoided.",match,natural
+paraphrase,26_cartesian_product,The plan runs as 1 stage.,The plan executes in 1 stage.,match,natural
+paraphrase,27_three_way_broadcast,Both joins are broadcast hash joins: customers is broadcast for the first join and countries for the second.,"Each of the joins is a broadcast hash join, with customers broadcast first and countries second.",match,natural
+paraphrase,27_three_way_broadcast,"Because both dimension tables are small, the large orders side is never shuffled.",The dimension tables are small enough that the big orders input is never shuffled.,match,natural
+paraphrase,27_three_way_broadcast,The whole query runs as 1 stage.,Estimated Stage Count: The whole query fits in 1 stage.,match,engine
+paraphrase,27_three_way_broadcast,The 2 broadcasts are built as separate jobs.,Spark builds the 2 broadcast tables in their own separate jobs.,match,natural
+paraphrase,27_three_way_broadcast,AQE is enabled.,AQE is enabled for the joins.,match,natural
+paraphrase,28_join_then_agg_same_key,"With broadcasting disabled, orders and customers are joined with a sort-merge join on customer_id.","Broadcast is turned off, and orders and customers are merge-joined on customer_id.",match,natural
+paraphrase,28_join_then_agg_same_key,Both inputs are hash-partitioned and sorted on customer_id for the merge.,"For the merge, each input is hash-partitioned and then sorted by customer_id.",match,natural
+paraphrase,28_join_then_agg_same_key,The aggregation by customer_id reuses the join's partitioning,Grouping by customer_id can reuse the partitioning produced for the join.,match,natural
+paraphrase,28_join_then_agg_same_key,no extra exchange is added for it.,The aggregation therefore adds no further shuffle.,match,natural
+paraphrase,28_join_then_agg_same_key,Both the partial and final aggregation run after the join.,The partial and final aggregation steps both happen after the join.,match,natural
+paraphrase,28_join_then_agg_same_key,The plan has 3 stages.,This plan is executed in 3 stages.,match,natural
+paraphrase,28_join_then_agg_same_key,Each shuffle exchange marks a stage boundary.,Every shuffle exchange is a stage boundary.,match,natural
+paraphrase,28_join_then_agg_same_key,AQE is enabled.,AQE Enabled: Adaptive Query Execution is enabled.,match,engine
+paraphrase,29_join_then_agg_other_key_aqe_off,"Orders and customers are joined with a sort-merge join, shuffling both sides by customer_id.",Sort Merge Join Detected: both orders and customers are shuffled by customer_id for the join.,match,engine
+paraphrase,29_join_then_agg_other_key_aqe_off,"Grouping by country_id needs a new hash partitioning, adding a third exchange after the join.","After the join, grouping by country_id forces a third exchange that hashes rows on the new key.",match,natural
+paraphrase,29_join_then_agg_other_key_aqe_off,Revenue per country is aggregated in two phases around that shuffle.,Country revenue is aggregated partially before that exchange and finally after it.,match,natural
+paraphrase,29_join_then_agg_other_key_aqe_off,Broadcasting the small customers table would remove the 2 join shuffles.,"If customers were broadcast, the 2 shuffles of the join would disappear.",match,natural
+paraphrase,29_join_then_agg_other_key_aqe_off,The plan runs as 4 stages.,The plan needs 4 stages.,match,natural
+paraphrase,29_join_then_agg_other_key_aqe_off,Each shuffle exchange marks a stage boundary.,Stage boundaries are placed at each shuffle exchange.,match,natural
+paraphrase,29_join_then_agg_other_key_aqe_off,AQE is disabled,Adaptive query execution is switched off.,match,natural
+paraphrase,29_join_then_agg_other_key_aqe_off,all shuffles use a static 200 partitions.,Every exchange is fixed at 200 partitions.,match,natural
+paraphrase,30_self_join_reused_exchange,The self-join on customer_id is executed as a sort-merge join.,Sort Merge Join Detected: the self-join on customer_id uses a sort-merge join.,match,engine
+paraphrase,30_self_join_reused_exchange,Both sides come from the same filtered orders subquery,Each input is the same filtered orders subquery.,match,natural
+paraphrase,30_self_join_reused_exchange,Spark reuses the first shuffle through a ReusedExchange instead of shuffling the data twice.,"Thanks to a ReusedExchange, the shuffled output is reused and the data is shuffled only once.",match,natural
+paraphrase,30_self_join_reused_exchange,Each side is still sorted on customer_id before the merge.,Both inputs are still sorted by customer_id ahead of merging.,match,natural
+paraphrase,30_self_join_reused_exchange,The plan has 2 stages.,Execution consists of 2 stages.,match,natural
+paraphrase,30_self_join_reused_exchange,Each shuffle exchange marks a stage boundary.,A stage boundary sits at every shuffle exchange.,match,natural
+paraphrase,30_self_join_reused_exchange,AQE is disabled for this query.,AQE is turned off for this query.,match,natural
+paraphrase,31_orderby_ascending,The global ORDER BY amount range-partitions the rows so that each partition covers a contiguous amount range.,"Range Partitioning Detected: for the global sort by amount, rows are split into partitions that each hold a continuous range of amounts.",match,engine
+paraphrase,31_orderby_ascending,Each partition is then sorted by amount in ascending order.,"Inside every partition, rows are then ordered by amount from lowest to highest.",match,natural
+paraphrase,31_orderby_ascending,The range-partitioning shuffle is required for a total ordering.,The range-partitioning shuffle is necessary to get a total order.,match,natural
+paraphrase,31_orderby_ascending,The plan has 2 stages.,The plan consists of 2 stages.,match,natural
+paraphrase,31_orderby_ascending,Each shuffle exchange marks a stage boundary.,Each shuffle exchange begins a new stage.,match,natural
+paraphrase,31_orderby_ascending,AQE is enabled.,AQE is enabled for the sort.,match,natural
+paraphrase,32_orderby_mixed_aqe_off,"Rows are globally sorted by amount descending, with customer_id ascending as a tie-breaker.","The output is sorted by amount in descending order, breaking ties with customer_id ascending.",match,natural
+paraphrase,32_orderby_mixed_aqe_off,The exchange uses range partitioning on the sort keys and is needed for the total order.,A range-partitioned exchange on the sort keys is necessary for the global order.,match,natural
+paraphrase,32_orderby_mixed_aqe_off,The plan has 2 stages.,Estimated Stage Count: Spark runs this plan in 2 stages.,match,engine
+paraphrase,32_orderby_mixed_aqe_off,Each shuffle exchange marks a stage boundary.,The stage boundary is at the shuffle exchange.,match,natural
+paraphrase,32_orderby_mixed_aqe_off,AQE is off,Adaptive query execution is disabled.,match,natural
+paraphrase,32_orderby_mixed_aqe_off,the range shuffle uses a fixed 200 partitions.,The range exchange always produces 200 partitions.,match,natural
+paraphrase,33_repartition_round_robin,repartition(64) triggers a round-robin shuffle that spreads rows evenly across 64 partitions.,Calling repartition(64) causes a round robin exchange that distributes the rows evenly over 64 partitions.,match,natural
+paraphrase,33_repartition_round_robin,No operator in this plan needs that distribution,Nothing later in the plan depends on that distribution.,match,natural
+paraphrase,33_repartition_round_robin,the shuffle is avoidable unless later work needs rebalanced partitions.,"Unless downstream steps want rebalanced partitions, this shuffle is unnecessary.",match,natural
+paraphrase,33_repartition_round_robin,The plan has 2 stages.,2 stages make up the plan.,match,natural
+paraphrase,33_repartition_round_robin,Each shuffle exchange marks a stage boundary.,Stage Boundary Detected: the round-robin exchange starts a new stage.,match,engine
+paraphrase,33_repartition_round_robin,AQE is enabled.,AQE is switched on.,match,natural
+paraphrase,34_repartition_by_column,repartition(customer_id) hash-partitions all rows by customer_id into 200 partitions.,"With repartition(customer_id), every row is hashed on customer_id into one of 200 partitions.",match,natural
+paraphrase,34_repartition_by_column,The shuffle is user requested and nothing in this plan consumes the partitioning,"The user explicitly asked for this shuffle, yet no later operator uses the resulting partitioning.",match,natural
+paraphrase,34_repartition_by_column,it is unnecessary here.,This exchange is redundant in this plan.,match,natural
+paraphrase,34_repartition_by_column,The plan has 2 stages.,The plan runs in 2 stages.,match,natural
+paraphrase,34_repartition_by_column,Each shuffle exchange marks a stage boundary.,Every exchange that shuffles data marks the end of a stage.,match,natural
+paraphrase,34_repartition_by_column,AQE is enabled.,AQE Enabled: adaptive query execution is enabled for this plan.,match,engine
+paraphrase,35_repartition_by_range,"repartitionByRange(16, amount) range-partitions rows into 16 partitions of contiguous amount values.","repartitionByRange(16, amount) splits rows by amount into 16 partitions, each holding a contiguous value range.",match,natural
+paraphrase,35_repartition_by_range,The data is shuffled,An exchange moves the data between partitions.,match,natural
+paraphrase,35_repartition_by_range,not sorted within partitions.,Inside each partition the rows are left unsorted.,match,natural
+paraphrase,35_repartition_by_range,The plan has 2 stages.,This plan needs 2 stages.,match,natural
+paraphrase,35_repartition_by_range,Each shuffle exchange marks a stage boundary.,Stage boundaries line up with the shuffle exchanges.,match,natural
+paraphrase,35_repartition_by_range,AQE is enabled.,Adaptive query execution is enabled.,match,natural
+paraphrase,36_repartition_to_one,repartition(1) shuffles every order into a single partition.,Single Partition Detected: repartition(1) moves all orders into one partition.,match,engine
+paraphrase,36_repartition_to_one,"All downstream work then runs in one task, which removes parallelism and is a serious bottleneck for a million rows.","Everything after it executes in a single task, killing parallelism and creating a major bottleneck for a million rows.",match,natural
+paraphrase,36_repartition_to_one,The plan has 2 stages.,There are 2 stages.,match,natural
+paraphrase,36_repartition_to_one,Each shuffle exchange marks a stage boundary.,The shuffle exchange starts a new stage.,match,natural
+paraphrase,36_repartition_to_one,AQE is enabled.,AQE is turned on.,match,natural
+paraphrase,37_coalesce_to_one,The status filter is applied directly on the range source.,The filter on status sits right on top of the generated range.,match,natural
+paraphrase,37_coalesce_to_one,coalesce(1) merges all partitions into a single partition without a shuffle.,coalesce(1) combines every partition into one without any exchange.,match,natural
+paraphrase,37_coalesce_to_one,This limits parallelism to one task even though no exchange appears in the plan.,"Even with no exchange in the plan, only one task does the work, which limits parallelism.",match,natural
+paraphrase,37_coalesce_to_one,The query runs as 1 stage.,Estimated Stage Count: The query runs in 1 stage.,match,engine
+paraphrase,38_top_n,ORDER BY amount DESC with LIMIT 10 is planned as a TakeOrderedAndProject top-N.,Spark plans ORDER BY amount DESC LIMIT 10 as a top-N TakeOrderedAndProject operator.,match,natural
+paraphrase,38_top_n,"Each partition keeps only its top 10 rows, which avoids a full global sort and range shuffle.",Keeping only the top 10 rows per partition avoids a full global sort and a range shuffle.,match,natural
+paraphrase,38_top_n,The results come back ordered by amount descending.,Output rows are returned with the highest amount first.,match,natural
+paraphrase,38_top_n,The query runs as 1 stage.,The query takes 1 stage.,match,natural
+paraphrase,39_sort_then_groupby,The ORDER BY amount before the groupBy range-partitions and globally sorts all orders.,"Before the grouping, the orderBy on amount range-partitions all orders and sorts them globally.",match,natural
+paraphrase,39_sort_then_groupby,The following aggregation re-shuffles the rows by product_id,"Afterwards the aggregation shuffles the rows again, this time by product_id.",match,natural
+paraphrase,39_sort_then_groupby,the earlier sort is redundant.,That makes the preceding sort unnecessary.,match,natural
+paraphrase,39_sort_then_groupby,Removing the orderBy would eliminate one shuffle and one full sort.,Dropping the orderBy would save a shuffle and a complete sort.,match,natural
+paraphrase,39_sort_then_groupby,Revenue per product is computed with partial and final aggregation around the hash-partitioned exchange.,Two-Phase Aggregation: product revenue is aggregated partially before and finally after the hash exchange.,match,engine
+paraphrase,39_sort_then_groupby,The plan runs as 3 stages.,Spark needs 3 stages here.,match,natural
+paraphrase,39_sort_then_groupby,Each shuffle exchange marks a stage boundary.,Each shuffle exchange is followed by a new stage.,match,natural
+paraphrase,39_sort_then_groupby,AQE is enabled.,AQE is enabled for this plan.,match,natural
+paraphrase,40_sort_merge_join_then_orderby,orders and customers are joined with a sort-merge join,A sort merge join combines orders and customers.,match,natural
+paraphrase,40_sort_merge_join_then_orderby,broadcasting is disabled.,Broadcast is turned off.,match,natural
+paraphrase,40_sort_merge_join_then_orderby,"Both join inputs are hash-partitioned on customer_id and sorted, and these shuffles are required by the join.","The join requires hash-partitioning and sorting both inputs on customer_id, which makes these shuffles necessary.",match,natural
+paraphrase,40_sort_merge_join_then_orderby,A third shuffle range-partitions the joined rows for the final ORDER BY amount descending.,"Range Partitioning Detected: the joined rows are range-partitioned by a third shuffle for the final sort on amount, highest first.",match,engine
+paraphrase,40_sort_merge_join_then_orderby,"The plan contains 3 sort operators, 2 for the merge join and 1 for the global ordering.",There are 3 sorts in total: 2 serve the merge join and 1 produces the global order.,match,natural
+paraphrase,40_sort_merge_join_then_orderby,The small customers table could be broadcast to remove the 2 join shuffles.,Broadcasting the small customers table could eliminate the 2 shuffles of the join.,match,natural
+paraphrase,40_sort_merge_join_then_orderby,The plan runs as 4 stages.,Execution needs 4 stages.,match,natural
+paraphrase,40_sort_merge_join_then_orderby,Each shuffle exchange marks a stage boundary.,Each shuffle exchange starts a new stage.,match,natural
+paraphrase,40_sort_merge_join_then_orderby,AQE is enabled.,AQE is switched on.,match,natural
+paraphrase,41_window_partitioned_rank,row_number over a window partitioned by customer_id requires hash-partitioning the rows by customer_id.,Computing row_number per customer_id window means the rows must first be hash-partitioned by customer_id.,match,natural
+paraphrase,41_window_partitioned_rank,"Within each partition, rows are sorted by customer_id and amount descending before the Window operator ranks them.","Before the Window operator assigns ranks, each partition sorts its rows by customer_id and by amount in descending order.",match,natural
+paraphrase,41_window_partitioned_rank,The shuffle is required so each customer's orders sit in one partition.,Placing all of a customer's orders in one partition makes the shuffle necessary.,match,natural
+paraphrase,41_window_partitioned_rank,The plan has 2 stages.,Estimated Stage Count: The plan is expected to contain 2 stages.,match,engine
+paraphrase,41_window_partitioned_rank,Each shuffle exchange marks a stage boundary.,A shuffle exchange is where a new stage starts.,match,natural
+paraphrase,41_window_partitioned_rank,AQE is enabled.,Adaptive query execution is enabled.,match,natural
+paraphrase,42_window_without_partition,The window has no PARTITION BY clause,No partition key is defined for the window.,match,natural
+paraphrase,42_window_without_partition,Spark moves all rows into a single partition.,Single Partition Detected: every row is shuffled into one partition.,match,engine
+paraphrase,42_window_without_partition,"That single partition is then sorted by amount and ranked by one task, a severe bottleneck for large data.","One task alone sorts that partition by amount and computes the ranks, creating a severe bottleneck on large data.",match,natural
+paraphrase,42_window_without_partition,Adding a partition key to the window would restore parallelism.,A partition key on the window could restore parallelism.,match,natural
+paraphrase,42_window_without_partition,The plan has 2 stages.,The plan needs 2 stages.,match,natural
+paraphrase,42_window_without_partition,Each shuffle exchange marks a stage boundary.,Stage boundaries occur at shuffle exchanges.,match,natural
+paraphrase,42_window_without_partition,AQE is enabled,AQE is turned on.,match,natural
+paraphrase,42_window_without_partition,cannot split a SinglePartition exchange.,AQE is unable to break up a SinglePartition exchange.,match,natural
+paraphrase,43_etl_filter_join_agg_sort,"The amount filter is applied right after the orders range, before the join.","The amount predicate runs immediately on the orders source, ahead of the join.",match,natural
+paraphrase,43_etl_filter_join_agg_sort,orders is joined with the small customers table using a broadcast hash join,Broadcast Hash Join Detected: the small customers table is broadcast and joined with orders.,match,engine
+paraphrase,43_etl_filter_join_agg_sort,no shuffle is needed for the join.,The join does not shuffle any data.,match,natural
+paraphrase,43_etl_filter_join_agg_sort,Revenue per country_id is computed with partial and final hash aggregation around a hash-partitioned exchange.,Country-level revenue uses a partial hash aggregate before a hash exchange and a final one after it.,match,natural
+paraphrase,43_etl_filter_join_agg_sort,That exchange is required by the aggregation.,The aggregation makes that exchange mandatory.,match,natural
+paraphrase,43_etl_filter_join_agg_sort,A final exchange range-partitions the results for the ORDER BY revenue descending.,"A last exchange range-partitions the results so they can be ordered by revenue, highest first.",match,natural
+paraphrase,43_etl_filter_join_agg_sort,The query runs as 3 stages.,The query is executed in 3 stages.,match,natural
+paraphrase,43_etl_filter_join_agg_sort,Each shuffle exchange marks a stage boundary.,Every shuffle exchange creates a stage boundary.,match,natural
+paraphrase,43_etl_filter_join_agg_sort,AQE is enabled.,Adaptive query execution is switched on.,match,natural
+paraphrase,44_etl_shuffle_heavy_aqe_off,The amount filter runs directly on the orders source before the join.,"Filtering on amount happens right at the orders source, ahead of the join.",match,natural
+paraphrase,44_etl_shuffle_heavy_aqe_off,"With broadcasting disabled, the join becomes a sort-merge join that shuffles and sorts both sides on customer_id.","Sort Merge Join Detected: with broadcast turned off, both sides are shuffled and sorted on customer_id for a sort merge join.",match,engine
+paraphrase,44_etl_shuffle_heavy_aqe_off,Grouping by country_id adds another hash-partitioned shuffle with partial and final aggregation.,"The country_id grouping introduces one more hash shuffle, with partial and final aggregation around it.",match,natural
+paraphrase,44_etl_shuffle_heavy_aqe_off,"Sorting by revenue descending adds a fourth, range-partitioned shuffle.",Ordering by revenue in descending order brings a fourth shuffle that range-partitions the rows.,match,natural
+paraphrase,44_etl_shuffle_heavy_aqe_off,The plan contains 4 shuffle exchanges.,In total the plan has 4 shuffle exchanges.,match,natural
+paraphrase,44_etl_shuffle_heavy_aqe_off,It runs as 5 stages.,The plan executes in 5 stages.,match,natural
+paraphrase,44_etl_shuffle_heavy_aqe_off,Each shuffle exchange marks a stage boundary.,Each of the shuffle exchanges is a stage boundary.,match,natural
+paraphrase,44_etl_shuffle_heavy_aqe_off,Broadcasting the small customers side would remove 2 of the shuffles.,"If the small customers side were broadcast, 2 of the shuffles would go away.",match,natural
+paraphrase,44_etl_shuffle_heavy_aqe_off,AQE is disabled,Adaptive query execution is turned off.,match,natural
+paraphrase,44_etl_shuffle_heavy_aqe_off,none of the shuffles can be coalesced or switched to a broadcast join at runtime.,"At runtime, Spark cannot coalesce any shuffle or turn the join into a broadcast join.",match,natural
+paraphrase,45_multi_shuffle_chain,"repartition(32, product_id) shuffles all rows by product_id first.","First, repartition(32, product_id) hash-shuffles every row by product_id.",match,natural
+paraphrase,45_multi_shuffle_chain,The groupBy on customer_id immediately re-shuffles by a different key,"Right after that, grouping by customer_id shuffles the data again on another key.",match,natural
+paraphrase,45_multi_shuffle_chain,the first repartition is redundant.,The initial repartition is therefore unnecessary.,match,natural
+paraphrase,45_multi_shuffle_chain,Sums per customer are aggregated in two phases around the customer_id exchange.,Two-Phase Aggregation: per-customer sums are computed partially before and finally after the customer_id exchange.,match,engine
+paraphrase,45_multi_shuffle_chain,"A third, range-partitioned exchange sorts the results by s in ascending order.","Results are then sorted by s, lowest first, through a third exchange using range partitioning.",match,natural
+paraphrase,45_multi_shuffle_chain,The plan runs as 4 stages.,The plan has 4 stages.,match,natural
+paraphrase,45_multi_shuffle_chain,Each shuffle exchange marks a stage boundary.,Each shuffle exchange is where a stage ends and the next begins.,match,natural
+paraphrase,45_multi_shuffle_chain,AQE is enabled.,Adaptive query execution is enabled.,match,natural
+paraphrase,46_union_then_agg,Two filtered scans of orders are combined with a Union before aggregation.,"Before aggregating, a Union merges 2 filtered reads of the orders source.",match,natural
+paraphrase,46_union_then_agg,Counts per product_id are computed with a partial aggregate over the union and a final aggregate after the shuffle.,Product counts are pre-aggregated on the unioned data and finished by a final aggregate after the exchange.,match,natural
+paraphrase,46_union_then_agg,The hash-partitioned exchange on product_id is required by the aggregation.,The aggregation depends on a mandatory hash exchange keyed by product_id.,match,natural
+paraphrase,46_union_then_agg,Using one filter with both status values would avoid scanning the orders source twice.,A single filter covering both status values would remove the second scan of orders.,match,natural
+paraphrase,46_union_then_agg,The plan runs as 2 stages.,Estimated Stage Count: This plan needs 2 Spark stages.,match,engine
+paraphrase,46_union_then_agg,Each shuffle exchange marks a stage boundary.,The shuffle exchange starts a new stage.,match,natural
+paraphrase,46_union_then_agg,AQE is enabled.,AQE is turned on.,match,natural
+paraphrase,47_explode_then_agg,explode turns every order into 3 rows through a Generate operator.,A Generate operator from explode expands each order into 3 rows.,match,natural
+paraphrase,47_explode_then_agg,The partial aggregation after the explode shrinks the data to one row per tag and partition before shuffling.,"After exploding, a partial aggregate reduces the data to a single row per tag in each partition ahead of the shuffle.",match,natural
+paraphrase,47_explode_then_agg,The exchange hash-partitions by tag and is required for the final sum.,The final sum needs a mandatory hash exchange keyed on tag.,match,natural
+paraphrase,47_explode_then_agg,The plan has 2 stages.,Spark runs 2 stages for this plan.,match,natural
+paraphrase,47_explode_then_agg,Each shuffle exchange marks a stage boundary.,Stage Boundary Detected: the exchange is a wide transformation and begins a new stage.,match,engine
+paraphrase,47_explode_then_agg,AQE is enabled.,Adaptive query execution is turned on.,match,natural
+paraphrase,48_csv_scan_filter_agg,The CSV file is read with a file scan whose amount predicate is pushed down to the scan.,Filter Pushdown: the predicate on amount is pushed into the CSV file scan.,match,engine
+paraphrase,48_csv_scan_filter_agg,"The Filter runs immediately after the scan, before the aggregation and shuffle.",Filtering happens right after reading the file and ahead of the aggregation and the exchange.,match,natural
+paraphrase,48_csv_scan_filter_agg,Revenue per region is computed with partial and final aggregation around a hash-partitioned exchange that is required by the grouping.,Regional revenue is aggregated partially and then finally around a hash exchange that the grouping makes necessary.,match,natural
+paraphrase,48_csv_scan_filter_agg,The query runs as 2 stages.,2 stages are used by this query.,match,natural
+paraphrase,48_csv_scan_filter_agg,Each shuffle exchange marks a stage boundary.,Stage boundaries fall at the shuffle exchanges.,match,natural
+paraphrase,48_csv_scan_filter_agg,AQE is enabled.,AQE is switched on.,match,natural
+paraphrase,49_parquet_scan_filter_join,"Both inputs are Parquet file scans, and the dwell_ms predicate is pushed down into the clicks scan.","Each input is a Parquet scan, and the dwell_ms condition is pushed into the clicks scan.",match,natural
+paraphrase,49_parquet_scan_filter_join,The filter sits directly above the scan,Filtering is applied immediately on top of the scan.,match,natural
+paraphrase,49_parquet_scan_filter_join,rows are dropped before the join.,Unneeded rows are removed ahead of the join.,match,natural
+paraphrase,49_parquet_scan_filter_join,The small stores table is broadcast and joined with a broadcast hash join,Broadcast Hash Join Detected: the small stores table is broadcast for the join.,match,engine
+paraphrase,49_parquet_scan_filter_join,the clicks data is never shuffled.,Clicks are joined without any shuffle.,match,natural
+paraphrase,49_parquet_scan_filter_join,The query runs as 1 stage.,The query completes in 1 stage.,match,natural
+paraphrase,49_parquet_scan_filter_join,AQE is enabled.,Adaptive query execution is enabled.,match,natural
+paraphrase,50_photon_broadcast_join_agg_sort,This is a Databricks Photon plan in which every operator runs natively in Photon.,Every operator in this Databricks plan executes natively in the Photon engine.,match,natural
+paraphrase,50_photon_broadcast_join_agg_sort,The join is executed as a Photon broadcast hash join.,Broadcast Hash Join Detected: Photon runs the join as a broadcast hash join.,match,engine
+paraphrase,50_photon_broadcast_join_agg_sort,Only the small broadcast side goes through the SinglePartition exchange,Just the small broadcast input passes through the SinglePartition exchange.,match,natural
+paraphrase,50_photon_broadcast_join_agg_sort,it is not a bottleneck.,That exchange does not create a bottleneck.,match,natural
+paraphrase,50_photon_broadcast_join_agg_sort,"Counting starts with a partial aggregation before the join, followed by a merge aggregation and a final merge aggregation.","The count is first partially aggregated ahead of the join, then merged, and finally merged once more.",match,natural
+paraphrase,50_photon_broadcast_join_agg_sort,The shuffle between the merge and final aggregation hash-partitions by value into 16 partitions and is required by the aggregation.,A necessary hash shuffle on value with 16 partitions sits between the merge and final aggregation steps.,match,natural
+paraphrase,50_photon_broadcast_join_agg_sort,The final ORDER BY count range-partitions the result and sorts it in ascending order.,"For the closing ORDER BY on count, the result is range-partitioned and sorted lowest first.",match,natural
+paraphrase,50_photon_broadcast_join_agg_sort,The plan runs as 4 stages.,The plan takes 4 stages.,match,natural
+paraphrase,50_photon_broadcast_join_agg_sort,Each shuffle exchange marks a stage boundary.,Each shuffle exchange opens a new stage.,match,natural
+paraphrase,50_photon_broadcast_join_agg_sort,AQE is enabled.,AQE Enabled: adaptive execution is on.,match,engine
+role_swap,07_groupby_sum,Rows are hash-partitioned by product_id into 200 shuffle partitions.,Rows are hash-partitioned by customer_id into 200 shuffle partitions.,no_match,natural
+role_swap,12_having_then_order,The HAVING-style filter on the count runs after the final aggregate.,The HAVING-style filter on the count runs before the partial aggregate.,no_match,natural
+role_swap,16_repartition_then_groupby_same_key,"The explicit repartition(64, customer_id) hash-partitions the raw rows by customer_id.","The explicit repartition(64, product_id) hash-partitions the raw rows by product_id.",no_match,natural
+role_swap,17_broadcast_join_auto,"Spark joins orders with the small customers table using a broadcast hash join, building the hash table from the customers side.","Spark joins orders with the small customers table using a broadcast hash join, building the hash table from the orders side.",no_match,natural
+role_swap,17_broadcast_join_auto,The customers side is sent to every executor through a BroadcastExchange,The orders side is sent to every executor through a BroadcastExchange.,no_match,natural
+role_swap,18_broadcast_hint_aqe_off,A broadcast hint makes Spark use a broadcast hash join with the 100-row products table as the build side.,A broadcast hint makes Spark use a broadcast hash join with the orders table as the build side.,no_match,natural
+role_swap,19_sort_merge_join_small_side,"The customers side has only 10,000 rows","The orders side has only 10,000 rows.",no_match,natural
+role_swap,20_sort_merge_join_two_large,Spark uses a sort-merge join on customer_id.,Spark uses a sort-merge join on order_id.,no_match,natural
+role_swap,21_shuffled_hash_join_hint,"The shuffle_hash hint selects a shuffled hash join, with the customers side used to build the in-memory hash table.","The shuffle_hash hint selects a shuffled hash join, with the orders side used to build the in-memory hash table.",no_match,natural
+role_swap,22_left_semi_broadcast,The left semi join keeps orders whose customer_id exists in the filtered customers set.,The left semi join keeps customers whose customer_id exists in the orders set.,no_match,natural
+role_swap,22_left_semi_broadcast,"It is executed as a broadcast hash join, broadcasting the small filtered customers side.","It is executed as a broadcast hash join, broadcasting the orders side.",no_match,natural
+role_swap,23_left_anti_sort_merge,The left anti join returns orders without a matching customer in the filtered segment.,The left anti join returns customers without a matching order.,no_match,natural
+role_swap,25_non_equi_join,"Every order row is compared against every broadcast products row, which is costly and scales with the product of both input sizes.",Every product row is compared against every broadcast order row.,no_match,natural
+role_swap,25_non_equi_join,The small products side is broadcast,The orders side is broadcast.,no_match,natural
+role_swap,27_three_way_broadcast,Both joins are broadcast hash joins: customers is broadcast for the first join and countries for the second.,Both joins are broadcast hash joins: countries is broadcast for the first join and customers for the second.,no_match,natural
+role_swap,28_join_then_agg_same_key,The aggregation by customer_id reuses the join's partitioning,The join reuses the aggregation's partitioning.,no_match,natural
+role_swap,29_join_then_agg_other_key_aqe_off,"Grouping by country_id needs a new hash partitioning, adding a third exchange after the join.","Grouping by customer_id needs a new hash partitioning, adding a third exchange after the join.",no_match,natural
+role_swap,30_self_join_reused_exchange,Spark reuses the first shuffle through a ReusedExchange instead of shuffling the data twice.,Spark shuffles the data twice instead of reusing the first shuffle through a ReusedExchange.,no_match,natural
+role_swap,31_orderby_ascending,The global ORDER BY amount range-partitions the rows so that each partition covers a contiguous amount range.,The global ORDER BY customer_id range-partitions the rows so that each partition covers a contiguous customer_id range.,no_match,natural
+role_swap,32_orderby_mixed_aqe_off,"Rows are globally sorted by amount descending, with customer_id ascending as a tie-breaker.","Rows are globally sorted by customer_id ascending, with amount descending as a tie-breaker.",no_match,natural
+role_swap,39_sort_then_groupby,The ORDER BY amount before the groupBy range-partitions and globally sorts all orders.,The groupBy before the ORDER BY amount range-partitions and globally sorts all orders.,no_match,natural
+role_swap,39_sort_then_groupby,The following aggregation re-shuffles the rows by product_id,The following aggregation re-shuffles the rows by amount.,no_match,natural
+role_swap,40_sort_merge_join_then_orderby,"The plan contains 3 sort operators, 2 for the merge join and 1 for the global ordering.","The plan contains 3 sort operators, 1 for the merge join and 2 for the global ordering.",no_match,natural
+role_swap,41_window_partitioned_rank,"Within each partition, rows are sorted by customer_id and amount descending before the Window operator ranks them.","Within each partition, rows are sorted by amount and customer_id descending before the Window operator ranks them.",no_match,natural
+role_swap,43_etl_filter_join_agg_sort,"The amount filter is applied right after the orders range, before the join.","The amount filter is applied after the join, not right after the orders range.",no_match,natural
+role_swap,45_multi_shuffle_chain,"repartition(32, product_id) shuffles all rows by product_id first.","repartition(32, customer_id) shuffles all rows by customer_id first.",no_match,natural
+role_swap,45_multi_shuffle_chain,The groupBy on customer_id immediately re-shuffles by a different key,The groupBy on product_id immediately re-shuffles by a different key.,no_match,natural
+role_swap,46_union_then_agg,Counts per product_id are computed with a partial aggregate over the union and a final aggregate after the shuffle.,Counts per product_id are computed with a final aggregate over the union and a partial aggregate after the shuffle.,no_match,natural
+role_swap,47_explode_then_agg,The partial aggregation after the explode shrinks the data to one row per tag and partition before shuffling.,The partial aggregation before the explode shrinks the data to one row per tag and partition after shuffling.,no_match,natural
+role_swap,49_parquet_scan_filter_join,"Both inputs are Parquet file scans, and the dwell_ms predicate is pushed down into the clicks scan.","Both inputs are Parquet file scans, and the dwell_ms predicate is pushed down into the stores scan.",no_match,natural
+role_swap,49_parquet_scan_filter_join,The small stores table is broadcast and joined with a broadcast hash join,The large clicks table is broadcast and joined with a broadcast hash join.,no_match,natural
+role_swap,50_photon_broadcast_join_agg_sort,The final ORDER BY count range-partitions the result and sorts it in ascending order.,The final ORDER BY value range-partitions the result and sorts it in ascending order.,no_match,natural
+role_swap,10_count_distinct,"This needs 2 shuffles, one hash-partitioned on customer_id and product_id and one on customer_id alone.","This needs 2 shuffles, one hash-partitioned on customer_id alone and one on customer_id and product_id.",no_match,natural
