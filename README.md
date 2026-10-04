@@ -160,8 +160,8 @@ SparkLens findings are scored against a fixed ground-truth dataset. The evaluati
 
 ## What is measured
 
-* `dataset_expected.csv` — 50 real Spark physical plans (49 rendered with Spark 3.5 `explain("formatted")`, 1 Databricks Photon plan), each with the analysis a correct analyzer should produce, written as plain sentences (316 atomic claims)
-* `dataset_predicted.csv` — what SparkLens reports for each plan (`sparklens analyze <plan> --eval`: rule engine only, AI disabled)
+* `evaluation/dataset_expected.csv` — 50 real Spark physical plans (49 rendered with Spark 3.5 `explain("formatted")`, 1 Databricks Photon plan), each with the analysis a correct analyzer should produce, written as plain sentences (316 atomic claims)
+* `evaluation/dataset_predicted.csv` — what SparkLens reports for each plan (`sparklens analyze <plan> --eval`: rule engine only, AI disabled)
 
 Both paragraphs are split into atomic claims and compared claim by claim:
 
@@ -188,7 +188,7 @@ Consistency rules (stage counts, numbers, polarity, exclusive alternatives, advi
 
 ## Validating the evaluator
 
-`python evaluate_engine.py validate` measures the evaluator itself on 1,377 test cases whose correct answer is known by construction:
+`python evaluation/evaluate_engine.py validate` measures the evaluator itself on 1,377 test cases whose correct answer is known by construction:
 
 | Test type | Example | Correct verdict |
 |---|---|---|
@@ -218,18 +218,20 @@ Known limitation: claims that use the same words with swapped roles ("orders is 
 ## Running the evaluation
 
 ```bash
-pip install -r requirements-eval.txt
+pip install -r evaluation/requirements-eval.txt
 
-python evaluate_engine.py selftest    # unit checks of the matcher and metrics
-python evaluate_engine.py validate    # evaluator accuracy on known-answer cases
-python evaluate_engine.py predict     # SparkLens (--eval) on all 50 plans -> dataset_predicted.csv
-python evaluate_engine.py evaluate    # precision / recall / F1 / final score, change vs baseline
-python evaluate_engine.py baseline    # freeze the current result as eval_baseline.json
+python evaluation/evaluate_engine.py selftest    # unit checks of the matcher and metrics
+python evaluation/evaluate_engine.py validate    # evaluator accuracy on known-answer cases
+python evaluation/evaluate_engine.py predict     # SparkLens (--eval) on all 50 plans -> dataset_predicted.csv
+python evaluation/evaluate_engine.py evaluate    # precision / recall / F1 / final score, change vs baseline
+python evaluation/evaluate_engine.py baseline    # freeze the current result as eval_baseline.json
 ```
 
 `predict` runs the SparkLens CLI, so SparkLens itself must be installed (`pip install -e .`). After a rule change, run `predict --force` and then `evaluate`; improved and regressed plans are listed.
 
-To fill `dataset_predicted.csv` by hand, run `python evaluate_engine.py export` and paste the output of `sparklens analyze eval_plans/<id>.txt --eval` into each row.
+To fill `dataset_predicted.csv` by hand, run `python evaluation/evaluate_engine.py export` and paste the output of `sparklens analyze evaluation/eval_plans/<id>.txt --eval` into each row.
+
+All evaluation files live in `evaluation/`; run the commands from the repository root.
 
 | File | Purpose |
 |---|---|
@@ -399,6 +401,7 @@ SparkLens/
 ├── ai/
 ├── analyzer/
 ├── cli/
+├── evaluation/
 ├── models/
 ├── report/
 ├── rules/
