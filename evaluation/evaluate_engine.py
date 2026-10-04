@@ -13,12 +13,14 @@ metric; the final score is F0.5.
 Fully offline: no API calls, no model downloads - only scikit-learn.
 
 Usage:
-  python evaluate_engine.py export     # eval_plans/<id>.txt + predicted template (manual CLI route)
-  python evaluate_engine.py predict    # run `cli.main analyze <plan> --eval` for every plan
-  python evaluate_engine.py evaluate   # precision / recall / F1 / final score (+ delta vs baseline)
-  python evaluate_engine.py baseline   # evaluate and freeze eval_baseline.json
-  python evaluate_engine.py validate   # measure the evaluator itself on known-answer test cases
-  python evaluate_engine.py selftest   # offline sanity checks of the matcher and metrics
+  python evaluation/evaluate_engine.py export     # eval_plans/<id>.txt + predicted template (manual CLI route)
+  python evaluation/evaluate_engine.py predict    # run `cli.main analyze <plan> --eval` for every plan
+  python evaluation/evaluate_engine.py evaluate   # precision / recall / F1 / final score (+ delta vs baseline)
+  python evaluation/evaluate_engine.py baseline   # evaluate and freeze eval_baseline.json
+  python evaluation/evaluate_engine.py validate   # measure the evaluator itself on known-answer test cases
+  python evaluation/evaluate_engine.py selftest   # offline sanity checks of the matcher and metrics
+
+All data files live next to this script in evaluation/; the CLI is run from the repository root.
 """
 
 import argparse
@@ -43,12 +45,13 @@ try:
 except ImportError:
     sys.exit("Error: scikit-learn is required. Install it with: pip install scikit-learn")
 
-ROOT = Path(__file__).resolve().parent
-EXPECTED_CSV = ROOT / "dataset_expected.csv"
-PREDICTED_CSV = ROOT / "dataset_predicted.csv"
-PLANS_DIR = ROOT / "eval_plans"
-REVIEW_CSV = ROOT / "eval_review.csv"
-BASELINE_JSON = ROOT / "eval_baseline.json"
+EVAL_DIR = Path(__file__).resolve().parent  # evaluation/: datasets, baseline and generated files
+ROOT = EVAL_DIR.parent                      # repository root: the CLI and git run from here
+EXPECTED_CSV = EVAL_DIR / "dataset_expected.csv"
+PREDICTED_CSV = EVAL_DIR / "dataset_predicted.csv"
+PLANS_DIR = EVAL_DIR / "eval_plans"
+REVIEW_CSV = EVAL_DIR / "eval_review.csv"
+BASELINE_JSON = EVAL_DIR / "eval_baseline.json"
 
 # Scoring configuration. It is stored in the baseline so later runs stay comparable.
 DEFAULT_THRESHOLD = 0.45
@@ -710,8 +713,9 @@ def cmd_export(_args) -> None:
 
     first = rows[0]["id"]
     print("\nFor each plan run, then paste the single output line into its predicted_outcome cell:")
-    print(f"  python -m cli.main analyze {PLANS_DIR.name}/{first}.txt --eval")
-    print(f"  (or, if installed: sparklens analyze {PLANS_DIR.name}/{first}.txt --eval)")
+    plan = PLANS_DIR.relative_to(ROOT).as_posix()
+    print(f"  python -m cli.main analyze {plan}/{first}.txt --eval")
+    print(f"  (or, if installed: sparklens analyze {plan}/{first}.txt --eval)")
 
 
 def _run_cli(plan_file: Path) -> tuple[str, str]:
@@ -827,7 +831,7 @@ def write_review(rows: list[RowScore]) -> None:
 
 def compare_with_baseline(rows: list[RowScore], summary: dict, config: dict) -> None:
     if not BASELINE_JSON.exists():
-        print(f"\nNo {BASELINE_JSON.name} yet - run `python evaluate_engine.py baseline` to freeze one.")
+        print(f"\nNo {BASELINE_JSON.name} yet - run `python evaluation/evaluate_engine.py baseline` to freeze one.")
         return
     base = json.loads(BASELINE_JSON.read_text(encoding="utf-8"))
     print(f"\n--- Change vs baseline ({base['created'][:10]}, engine {base['engine_version']}) ---")
@@ -906,8 +910,8 @@ def cmd_baseline(args) -> None:
 # labelling. LLM-written cases (paraphrases, role swaps) come from eval_validation.csv;
 # rule-based cases are generated here from the ground truth and the plan text.
 
-VALIDATION_CSV = ROOT / "eval_validation.csv"
-VALIDATION_FAILURES_CSV = ROOT / "eval_validation_failures.csv"
+VALIDATION_CSV = EVAL_DIR / "eval_validation.csv"
+VALIDATION_FAILURES_CSV = EVAL_DIR / "eval_validation_failures.csv"
 DEV_PLAN_LIMIT = 25        # plans 01-25 form the development split, plans 26-50 the held-out test split
 TRANSPLANTS_PER_PLAN = 3   # cross-plan cases per plan and direction
 

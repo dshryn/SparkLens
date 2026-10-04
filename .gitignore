@@ -37,7 +37,7 @@ dag.png
 *.csv
 
 # Evaluation dataset (tracked) & generated plan files
-!dataset_expected.csv
-!dataset_predicted.csv
-eval_plans/
-!eval_validation.csv
+!evaluation/dataset_expected.csv
+!evaluation/dataset_predicted.csv
+!evaluation/eval_validation.csv
+evaluation/eval_plans/
