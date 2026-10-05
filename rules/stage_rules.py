@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from models.analysis_finding import AnalysisFinding
-from models.enums import Severity, TransformationType
+from models.enums import OperatorType, Severity
 from models.execution_dag import ExecutionDAG
 
 from .base import Rule
@@ -11,15 +11,13 @@ class StageRule(Rule):
     """
     Detects Spark stage boundaries.
 
-    IMPORTANT: This rule's stage count MUST use the exact same
-    definition as SparkAnalyzer._compute_statistics's canonical formula
-    (one initial stage, plus one additional stage for every WIDE
-    transformation) so that ExecutionStatistics.stage_count and this
-    rule's "Estimated Stage Count" finding can never disagree. Do not
-    recompute stage boundaries using an independent heuristic (e.g.
-    matching on operator name substrings like "shuffleexchangesink") --
-    that was the previous source of inconsistent stage counts between
-    statistics and findings.
+    SparkLens defines an estimated stage count as:
+
+        1 initial stage + number of shuffle Exchange operators
+
+    Wide transformations such as aggregation do not themselves create an
+    additional stage. The Exchange that separates the stages is the actual
+    shuffle boundary.
     """
 
     def apply(
@@ -29,42 +27,45 @@ class StageRule(Rule):
 
         findings: list[AnalysisFinding] = []
 
-        stage_count = 1
+        exchange_count = 0
 
         for operator in dag.operators.values():
 
-            if operator.transformation != TransformationType.WIDE:
+            if operator.operator_type != OperatorType.EXCHANGE:
                 continue
 
-            stage_count += 1
+            exchange_count += 1
 
             findings.append(
                 AnalysisFinding(
                     rule=self.__class__.__name__,
                     title="Stage Boundary Detected",
                     description=(
-                        "This operator is a wide (shuffle-boundary) "
-                        "transformation and introduces a new Spark "
-                        "stage."
+                        "This Exchange represents a shuffle boundary "
+                        "between Spark execution stages."
                     ),
                     severity=Severity.LOW,
                     operator_id=operator.operator_id,
                 )
             )
 
+        stage_count = 1 + exchange_count
+
         findings.append(
             AnalysisFinding(
                 rule=self.__class__.__name__,
                 title="Estimated Stage Count",
                 description=(
-                    f"The execution plan is expected to contain "
-                    f"{stage_count} Spark stage(s)."
+                    f"SparkLens estimates {stage_count} execution "
+                    f"stage(s) from {exchange_count} shuffle "
+                    f"boundary Exchange operator(s)."
                 ),
                 severity=Severity.LOW,
                 metadata={
                     "positive": True,
                     "category": "stage_count",
                     "stage_count": stage_count,
+                    "shuffle_boundary_count": exchange_count,
                 },
             )
         )

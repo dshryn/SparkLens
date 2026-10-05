@@ -9,19 +9,27 @@ def test_generate_recommendations():
 
     report.add_finding(
         AnalysisFinding(
-            rule="Shuffle",
+            rule="ShuffleRule",
             title="Shuffle Detected",
             description="A shuffle operation was detected.",
             severity=Severity.HIGH,
+            metadata={
+                "positive": False,
+                "category": "shuffle",
+            },
         )
     )
 
     report.add_finding(
         AnalysisFinding(
-            rule="Broadcast Join",
+            rule="BroadcastJoinRule",
             title="Broadcast Join",
             description="Broadcast join was detected.",
             severity=Severity.LOW,
+            metadata={
+                "positive": False,
+                "category": "broadcast_join",
+            },
         )
     )
 

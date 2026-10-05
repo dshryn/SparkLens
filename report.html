@@ -7,129 +7,59 @@
 <body>
 <h1>SparkLens Analysis Report</h1>
 <h2>Executive Summary</h2>
-<p>Test summary</p>
+<p>AI explanation disabled.</p>
 <h2>Findings</h2>
-<h3>Broadcast Hash Join Detected</h3>
-<p><strong>Severity:</strong> Low</p>
-<p><strong>Operator:</strong> BroadcastHashJoin</p>
-<p>Spark selected a Broadcast Hash Join for this operator. This strategy is typically efficient when one side of the join is sufficiently small to broadcast.</p>
 <h3>Shuffle Detected</h3>
 <p><strong>Severity:</strong> Medium</p>
-<p><strong>Operator:</strong> ShuffleExchangeSink</p>
-<p>A shuffle exchange redistributes data across partitions and may become a performance bottleneck.</p>
-<h3>Shuffle Detected</h3>
+<p><strong>Operator:</strong> Exchange</p>
+<p>A shuffle exchange redistributes data across partitions. Whether this shuffle is required, expected, or an optimization opportunity is determined by ExecutionQualityRule's evidence for this operator.</p>
+<h3>Exchange Operator</h3>
 <p><strong>Severity:</strong> Medium</p>
-<p><strong>Operator:</strong> ShuffleExchangeSource</p>
-<p>A shuffle exchange redistributes data across partitions and may become a performance bottleneck.</p>
-<h3>Shuffle Detected</h3>
-<p><strong>Severity:</strong> Medium</p>
-<p><strong>Operator:</strong> ShuffleExchangeSink</p>
-<p>A shuffle exchange redistributes data across partitions and may become a performance bottleneck.</p>
-<h3>Shuffle Detected</h3>
-<p><strong>Severity:</strong> Medium</p>
-<p><strong>Operator:</strong> ShuffleExchangeSource</p>
-<p>A shuffle exchange redistributes data across partitions and may become a performance bottleneck.</p>
-<h3>Shuffle Detected</h3>
-<p><strong>Severity:</strong> Medium</p>
-<p><strong>Operator:</strong> ShuffleExchangeSink</p>
-<p>A shuffle exchange redistributes data across partitions and may become a performance bottleneck.</p>
-<h3>Shuffle Detected</h3>
-<p><strong>Severity:</strong> Medium</p>
-<p><strong>Operator:</strong> ShuffleExchangeSource</p>
-<p>A shuffle exchange redistributes data across partitions and may become a performance bottleneck.</p>
-<h3>Shuffle Write</h3>
-<p><strong>Severity:</strong> Medium</p>
-<p><strong>Operator:</strong> ShuffleExchangeSink</p>
-<p>Spark writes shuffle data for downstream stages.</p>
-<h3>Shuffle Read</h3>
-<p><strong>Severity:</strong> Medium</p>
-<p><strong>Operator:</strong> ShuffleExchangeSource</p>
-<p>Spark reads data produced by a previous shuffle stage.</p>
-<h3>Shuffle Write</h3>
-<p><strong>Severity:</strong> Medium</p>
-<p><strong>Operator:</strong> ShuffleExchangeSink</p>
-<p>Spark writes shuffle data for downstream stages.</p>
-<h3>Shuffle Read</h3>
-<p><strong>Severity:</strong> Medium</p>
-<p><strong>Operator:</strong> ShuffleExchangeSource</p>
-<p>Spark reads data produced by a previous shuffle stage.</p>
-<h3>Shuffle Write</h3>
-<p><strong>Severity:</strong> Medium</p>
-<p><strong>Operator:</strong> ShuffleExchangeSink</p>
-<p>Spark writes shuffle data for downstream stages.</p>
-<h3>Shuffle Read</h3>
-<p><strong>Severity:</strong> Medium</p>
-<p><strong>Operator:</strong> ShuffleExchangeSource</p>
-<p>Spark reads data produced by a previous shuffle stage.</p>
-<h3>Single Partition Detected</h3>
-<p><strong>Severity:</strong> High</p>
-<p><strong>Operator:</strong> ShuffleExchangeSink</p>
-<p>Spark repartitions all data into a single partition. This may limit parallelism.</p>
+<p><strong>Operator:</strong> Exchange</p>
+<p>Spark exchanges data between execution stages. Whether this exchange is required is determined by ExecutionQualityRule's evidence for this operator.</p>
 <h3>Hash Partitioning Detected</h3>
 <p><strong>Severity:</strong> Medium</p>
-<p><strong>Operator:</strong> ShuffleExchangeSink</p>
+<p><strong>Operator:</strong> Exchange</p>
 <p>Spark redistributes rows using hash partitioning across executors.</p>
-<h3>Range Partitioning Detected</h3>
-<p><strong>Severity:</strong> Medium</p>
-<p><strong>Operator:</strong> ShuffleExchangeSink</p>
-<p>Spark redistributes rows using range partitioning to preserve ordering.</p>
-<h3>Partial Aggregation</h3>
+<h3>Aggregation</h3>
 <p><strong>Severity:</strong> Low</p>
-<p><strong>Operator:</strong> GroupingAgg</p>
-<p>Spark performs a local aggregation before redistributing data.</p>
-<h3>Merge Aggregation</h3>
-<p><strong>Severity:</strong> Medium</p>
-<p><strong>Operator:</strong> GroupingAgg</p>
-<p>Spark merges intermediate aggregation results received from upstream partitions.</p>
-<h3>Final Aggregation</h3>
-<p><strong>Severity:</strong> Medium</p>
-<p><strong>Operator:</strong> GroupingAgg</p>
-<p>Spark performs the final aggregation after combining intermediate results.</p>
-<h3>Sort Operation Detected</h3>
-<p><strong>Severity:</strong> Medium</p>
-<p><strong>Operator:</strong> Sort</p>
-<p>Spark sorts the dataset before downstream processing. Sort order: Ascending.</p>
-<h3>Adaptive Query Execution Detected</h3>
+<p><strong>Operator:</strong> HashAggregate</p>
+<p>Spark performs an aggregation operation.</p>
+<h3>Aggregation</h3>
 <p><strong>Severity:</strong> Low</p>
-<p><strong>Operator:</strong> AdaptiveSparkPlan</p>
-<p>Adaptive Query Execution (AQE) is enabled. Spark can optimize the execution plan at runtime. The final optimized plan has not yet been generated.</p>
+<p><strong>Operator:</strong> HashAggregate</p>
+<p>Spark performs an aggregation operation.</p>
 <h3>Stage Boundary Detected</h3>
 <p><strong>Severity:</strong> Low</p>
-<p><strong>Operator:</strong> ShuffleExchangeSink</p>
-<p>A shuffle exchange creates a new Spark stage.</p>
-<h3>Stage Boundary Detected</h3>
-<p><strong>Severity:</strong> Low</p>
-<p><strong>Operator:</strong> ShuffleExchangeSink</p>
-<p>A shuffle exchange creates a new Spark stage.</p>
-<h3>Stage Boundary Detected</h3>
-<p><strong>Severity:</strong> Low</p>
-<p><strong>Operator:</strong> ShuffleExchangeSink</p>
-<p>A shuffle exchange creates a new Spark stage.</p>
+<p><strong>Operator:</strong> Exchange</p>
+<p>This Exchange represents a shuffle boundary between Spark execution stages.</p>
 <h3>Estimated Stage Count</h3>
 <p><strong>Severity:</strong> Low</p>
-<p>The execution plan is expected to contain 4 Spark stage(s).</p>
-<h3>Single Partition Bottleneck</h3>
-<p><strong>Severity:</strong> High</p>
-<p>The execution plan contains a SinglePartition exchange, which may reduce parallelism by processing data in a single partition.</p>
-<h3>Multiple Shuffle Operations</h3>
-<p><strong>Severity:</strong> Medium</p>
-<p>The plan contains 6 shuffle exchange operators. Multiple shuffles may increase network I/O and execution time.</p>
+<p>SparkLens estimates 2 execution stage(s) from 1 shuffle boundary Exchange operator(s).</p>
 <h3>Multi-Stage Aggregation</h3>
 <p><strong>Severity:</strong> Low</p>
-<p>Spark performs aggregation in multiple stages, which is expected for distributed execution.</p>
-<h3>Transformation Pipeline Detected</h3>
+<p>Multiple aggregation operators are present, indicating a multi-stage aggregation pipeline.</p>
+<h3>Required Shuffle (Aggregation)</h3>
+<p><strong>Severity:</strong> Low</p>
+<p><strong>Operator:</strong> Exchange</p>
+<p>Spark inserts this shuffle to redistribute partially aggregated data so the final aggregation can combine results across partitions. This exchange is required by the two-phase aggregation strategy and is not an optimization target.</p>
+<h3>Two-Phase Aggregation</h3>
+<p><strong>Severity:</strong> Low</p>
+<p><strong>Operator:</strong> HashAggregate</p>
+<p>Spark performs a partial (map-side) aggregation followed by a final aggregation across the shuffle boundary. This reduces the volume of data shuffled and is the expected, efficient strategy for this aggregation.</p>
+<h3>Early Filter / Filter Pushdown</h3>
+<p><strong>Severity:</strong> Low</p>
+<p><strong>Operator:</strong> Filter</p>
+<p>The filter is applied immediately after the scan or source, before any shuffle or join. This reduces the volume of data carried through the rest of the plan and is the expected, efficient placement for this predicate.</p>
+<h3>AQE Enabled</h3>
 <p><strong>Severity:</strong> Low</p>
 <p><strong>Operator:</strong> AdaptiveSparkPlan</p>
-<p>A pipeline containing 4 operators executes without an intermediate shuffle.</p>
-<h2>Recommendations</h2>
-<ul>
-<li>Test recommendation</li>
-</ul>
+<p>Adaptive Query Execution is enabled, allowing Spark to adjust shuffle partitions, join strategies, and skew handling at runtime based on observed data statistics.</p>
 <h2>Execution Overview</h2>
-<p>Operators: 23<br>Edges: 22<br>Root Nodes: 1<br>Leaf Nodes: 2<br>Findings: 29</p>
+<p>Operators: 7<br>Edges: 6<br>Root Nodes: 1<br>Leaf Nodes: 1<br>Findings: 12</p>
 <h2>Execution Statistics</h2>
-<p>Stages: 11<br>Joins: 1<br>Broadcast Joins: 1<br>Shuffles: 6<br>Exchanges: 6<br>Aggregations: 3<br>Sorts: 1<br>Filters: 0<br>Scans: 0<br>Max Depth: 0<br>Complexity: VERY_HIGH (57.75)</p>
+<p>Stages: 2<br>Joins: 0<br>Broadcast Joins: 0<br>Shuffles: 1<br>Exchanges: 1<br>Aggregations: 2<br>Sorts: 0<br>Filters: 1<br>Scans: 0<br>Max Depth: 7<br>Complexity: MEDIUM (16.75)</p>
 <h2>AI Explanation</h2>
-<p>Test explanation</p>
+<p>Only deterministic analysis was executed.</p>
 </body>
 </html>
