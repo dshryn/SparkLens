@@ -30,14 +30,9 @@ class ExecutionQualityRule(Rule):
         - "required": True
         - "required_operator_id": <exchange operator id>
 
-    NOTE on DAG direction: `dag.children(op)` returns the operators whose
-    output FEEDS `op` (i.e. upstream / input side, matching the nesting of
-    the printed physical plan). `parents` (built below) returns the
-    operator(s) that CONSUME `op`'s output (i.e. downstream side). This
-    matters for Exchange: the operator that produced the data flowing
-    INTO the Exchange is one of its `children`; the operator that
-    CONSUMES the Exchange's output (e.g. the final/merge aggregation, or
-    a shuffle join) is one of its `parents`.
+    DAG direction:
+        dag.children(op) returns upstream/input operators that feed op.
+        dag.parents(op) returns downstream operators that consume op.
     """
 
     _AGG_TYPES = (
@@ -59,10 +54,27 @@ class ExecutionQualityRule(Rule):
 
         parents = self._build_parent_map(dag)
 
-        findings.extend(self._detect_required_shuffles(dag, parents))
-        findings.extend(self._detect_two_phase_aggregation(dag))
-        findings.extend(self._detect_filter_pushdown(dag, parents))
-        findings.extend(self._detect_aqe(dag))
+        findings.extend(
+            self._detect_required_shuffles(
+                dag,
+                parents,
+            )
+        )
+
+        findings.extend(
+            self._detect_two_phase_aggregation(dag)
+        )
+
+        findings.extend(
+            self._detect_filter_pushdown(
+                dag,
+                parents,
+            )
+        )
+
+        findings.extend(
+            self._detect_aqe(dag)
+        )
 
         return findings
 
@@ -76,12 +88,20 @@ class ExecutionQualityRule(Rule):
     ) -> dict[int, list[int]]:
 
         parents: dict[int, list[int]] = {
-            operator_id: [] for operator_id in dag.operators
+            operator_id: []
+            for operator_id in dag.operators
         }
 
         for operator in dag.operators.values():
-            for child in dag.children(operator.operator_id):
-                parents.setdefault(child.operator_id, []).append(
+
+            for child in dag.children(
+                operator.operator_id
+            ):
+
+                parents.setdefault(
+                    child.operator_id,
+                    [],
+                ).append(
                     operator.operator_id
                 )
 
@@ -100,24 +120,48 @@ class ExecutionQualityRule(Rule):
             if operator.operator_type != OperatorType.EXCHANGE:
                 continue
 
-            # Upstream input(s) feeding the Exchange.
-            children = dag.children(operator.operator_id)
+            children = dag.children(
+                operator.operator_id
+            )
 
-            # Downstream consumer(s) of the Exchange's output.
-            parent_ids = parents.get(operator.operator_id, [])
+            parent_ids = parents.get(
+                operator.operator_id,
+                [],
+            )
 
             parent_ops: list[PhysicalOperator] = [
                 parent_op
                 for parent_id in parent_ids
-                if (parent_op := dag.get_operator(parent_id)) is not None
+                if (
+                    parent_op := dag.get_operator(parent_id)
+                ) is not None
             ]
 
-            # Exchange whose output is consumed by a final/merge
-            # aggregation, and whose input comes from a partial
-            # aggregation => required shuffle for two-phase agg.
-            if self._feeds_merge_aggregation(
-                parent_ops
-            ) and self._preceded_by_partial_aggregation(children):
+            # ----------------------------------------------------------
+            # Required shuffle for two-phase aggregation
+            #
+            # Structural evidence:
+            #
+            #   Final Aggregate
+            #          |
+            #       Exchange
+            #          |
+            #   Partial Aggregate
+            #
+            # No Photon-specific finalmerge_/merge_ text is required.
+            # ----------------------------------------------------------
+
+            if (
+                self._feeds_final_aggregation(
+                    dag,
+                    operator,
+                    parent_ops,
+                )
+                and self._preceded_by_partial_aggregation(
+                    children
+                )
+            ):
+
                 findings.append(
                     AnalysisFinding(
                         rule=self.__class__.__name__,
@@ -134,18 +178,25 @@ class ExecutionQualityRule(Rule):
                         operator_id=operator.operator_id,
                         metadata={
                             "positive": True,
-                            "category": "required_shuffle_aggregation",
+                            "category": (
+                                "required_shuffle_aggregation"
+                            ),
                             "required": True,
-                            "required_operator_id": operator.operator_id,
+                            "required_operator_id": (
+                                operator.operator_id
+                            ),
                         },
                     )
                 )
+
                 continue
 
-            # Exchange whose output is consumed by a shuffle-based join
-            # (Sort Merge / Shuffle Hash Join) => required shuffle for the
-            # join strategy.
+            # ----------------------------------------------------------
+            # Required shuffle for shuffle-based joins
+            # ----------------------------------------------------------
+
             if self._feeds_shuffle_join(parent_ops):
+
                 findings.append(
                     AnalysisFinding(
                         rule=self.__class__.__name__,
@@ -162,46 +213,73 @@ class ExecutionQualityRule(Rule):
                             "positive": True,
                             "category": "required_shuffle_join",
                             "required": True,
-                            "required_operator_id": operator.operator_id,
+                            "required_operator_id": (
+                                operator.operator_id
+                            ),
                         },
                     )
                 )
 
         return findings
 
-    @staticmethod
-    def _feeds_merge_aggregation(
+    def _feeds_final_aggregation(
+        self,
+        dag: ExecutionDAG,
+        exchange: PhysicalOperator,
         parent_ops: list[PhysicalOperator],
     ) -> bool:
-        """True if one of the downstream consumers is a final/merge agg."""
+        """
+        Determines whether the Exchange feeds a final/merge aggregation.
 
-        for parent in parent_ops:
+        Structural evidence is preferred over textual markers.
 
-            if parent.operator_type not in ExecutionQualityRule._AGG_TYPES:
-                continue
+        An aggregation is considered the final side of a two-phase pattern
+        when the Exchange is one of its upstream children and that Exchange
+        is itself fed by a partial aggregation.
+        """
 
-            arguments = " ".join(parent.arguments).lower()
+        if not parent_ops:
+            return False
 
-            if "finalmerge_" in arguments or "merge_" in arguments:
-                return True
+        if not self._preceded_by_partial_aggregation(
+            dag.children(exchange.operator_id)
+        ):
+            return False
 
-        return False
+        return any(
+            parent.operator_type in self._AGG_TYPES
+            for parent in parent_ops
+        )
 
     @staticmethod
     def _preceded_by_partial_aggregation(
         children: list[PhysicalOperator],
     ) -> bool:
-        """True if one of the upstream inputs is a partial aggregation."""
+        """
+        Returns True when an upstream child is an aggregation.
+
+        The aggregation immediately upstream of an Exchange is treated as
+        the partial/map-side aggregation in a two-phase aggregation pattern.
+        Explicit phase text is used when available, but structural placement
+        is sufficient when the parser does not preserve that text.
+        """
 
         for child in children:
-
-            if child.operator_type not in ExecutionQualityRule._AGG_TYPES:
+            if child.operator_type not in (
+                ExecutionQualityRule._AGG_TYPES
+            ):
                 continue
 
-            arguments = " ".join(child.arguments).lower()
+            arguments = " ".join(
+                child.arguments
+            ).lower()
 
             if "partial_" in arguments:
                 return True
+
+            # Structural fallback:
+            # this aggregation is immediately upstream of the Exchange.
+            return True
 
         return False
 
@@ -209,10 +287,10 @@ class ExecutionQualityRule(Rule):
     def _feeds_shuffle_join(
         parent_ops: list[PhysicalOperator],
     ) -> bool:
-        """True if one of the downstream consumers is a shuffle join."""
 
         return any(
-            parent.operator_type in ExecutionQualityRule._SHUFFLE_JOIN_TYPES
+            parent.operator_type
+            in ExecutionQualityRule._SHUFFLE_JOIN_TYPES
             for parent in parent_ops
         )
 
@@ -223,23 +301,47 @@ class ExecutionQualityRule(Rule):
 
         findings: list[AnalysisFinding] = []
 
-        partial_ops: list[PhysicalOperator] = []
-        merge_ops: list[PhysicalOperator] = []
+        # Find the pattern structurally through an Exchange.
+        #
+        # Final Aggregate
+        #       |
+        #    Exchange
+        #       |
+        # Partial Aggregate
+        #
+        # This works for both vanilla Spark and Photon plan text.
 
-        for operator in dag.operators.values():
+        for exchange in dag.operators.values():
 
-            if operator.operator_type not in self._AGG_TYPES:
+            if exchange.operator_type != OperatorType.EXCHANGE:
                 continue
 
-            arguments = " ".join(operator.arguments).lower()
+            upstream = dag.children(
+                exchange.operator_id
+            )
 
-            if "partial_" in arguments:
-                partial_ops.append(operator)
+            downstream = dag.parents(
+                exchange.operator_id
+            )
 
-            elif "finalmerge_" in arguments or "merge_" in arguments:
-                merge_ops.append(operator)
+            partial_ops = [
+                operator
+                for operator in upstream
+                if (
+                    operator.operator_type
+                    in self._AGG_TYPES
+                    and self._is_partial_aggregation(operator)
+                )
+            ]
 
-        if partial_ops and merge_ops:
+            final_ops = [
+                operator
+                for operator in downstream
+                if operator.operator_type in self._AGG_TYPES
+            ]
+
+            if not partial_ops or not final_ops:
+                continue
 
             findings.append(
                 AnalysisFinding(
@@ -247,34 +349,83 @@ class ExecutionQualityRule(Rule):
                     title="Two-Phase Aggregation",
                     description=(
                         "Spark performs a partial (map-side) aggregation "
-                        "followed by a final merge aggregation. This "
-                        "reduces the volume of data shuffled and is the "
-                        "expected, efficient strategy for this aggregation."
+                        "followed by a final aggregation across the "
+                        "shuffle boundary. This reduces the volume of data "
+                        "shuffled and is the expected, efficient strategy "
+                        "for this aggregation."
                     ),
                     severity=Severity.LOW,
                     operator_id=partial_ops[0].operator_id,
                     metadata={
                         "positive": True,
                         "category": "two_phase_aggregation",
+                        "partial_operator_id": (
+                            partial_ops[0].operator_id
+                        ),
+                        "final_operator_id": (
+                            final_ops[0].operator_id
+                        ),
+                        "exchange_operator_id": (
+                            exchange.operator_id
+                        ),
                     },
                 )
             )
 
+            # A single Exchange should produce one two-phase finding.
+            break
+
         return findings
 
+    @staticmethod
+    def _is_partial_aggregation(
+        operator: PhysicalOperator,
+    ) -> bool:
+        """
+        Determines whether an aggregation is the partial side of a
+        two-phase aggregation pattern.
+
+        Explicit phase text is preferred when available. The caller uses
+        this helper only for an aggregation immediately upstream of an
+        Exchange, so structural placement is the fallback.
+        """
+
+        if operator.operator_type not in (
+            ExecutionQualityRule._AGG_TYPES
+        ):
+            return False
+
+        arguments = " ".join(
+            operator.arguments
+        ).lower()
+
+        if "partial_" in arguments:
+            return True
+
+        # Structural fallback. The caller has already established that
+        # this aggregation is immediately upstream of an Exchange.
+        return True
+    
+    
     def _detect_filter_pushdown(
         self,
         dag: ExecutionDAG,
         parents: dict[int, list[int]],
     ) -> list[AnalysisFinding]:
 
-        # Types that count as a "data source" for the purpose of detecting
-        # a filter placed immediately after a scan/source (filter
-        # pushdown / early filtering). FILE_SCAN covers table/file
-        # sources; RANGE covers Range(...) sources (e.g. spark.range(...)).
-        source_types = {OperatorType.FILE_SCAN}
+        # FILE_SCAN is the normal table/file source.
+        source_types = {
+            OperatorType.FILE_SCAN
+        }
 
-        range_type = getattr(OperatorType, "RANGE", None)
+        # RANGE is not currently present in OperatorType in the retrieved
+        # repository, but preserve compatibility if it is added later.
+        range_type = getattr(
+            OperatorType,
+            "RANGE",
+            None,
+        )
+
         if range_type is not None:
             source_types.add(range_type)
 
@@ -285,15 +436,26 @@ class ExecutionQualityRule(Rule):
             if operator.operator_type != OperatorType.FILTER:
                 continue
 
-            # The scan/source that feeds the filter is an upstream input,
-            # i.e. one of the filter's `children`, not its `parents`.
-            children = dag.children(operator.operator_id)
-
-            has_source_child = any(
-                child.operator_type in source_types for child in children
+            children = dag.children(
+                operator.operator_id
             )
 
-            if not has_source_child:
+            has_source_child = any(
+                child.operator_type in source_types
+                for child in children
+            )
+
+            # Parser currently classifies Range as UNKNOWN. When that is the
+            # case, identify it structurally by the source operator name.
+            has_range_source = any(
+                child.name.lower().startswith("range")
+                for child in children
+            )
+
+            if not (
+                has_source_child
+                or has_range_source
+            ):
                 continue
 
             findings.append(
@@ -301,11 +463,11 @@ class ExecutionQualityRule(Rule):
                     rule=self.__class__.__name__,
                     title="Early Filter / Filter Pushdown",
                     description=(
-                        "The filter is applied immediately after the scan, "
-                        "before any shuffle or join. This reduces the "
-                        "volume of data carried through the rest of the "
-                        "plan and is the expected, efficient placement for "
-                        "this predicate."
+                        "The filter is applied immediately after the scan "
+                        "or source, before any shuffle or join. This "
+                        "reduces the volume of data carried through the "
+                        "rest of the plan and is the expected, efficient "
+                        "placement for this predicate."
                     ),
                     severity=Severity.LOW,
                     operator_id=operator.operator_id,
