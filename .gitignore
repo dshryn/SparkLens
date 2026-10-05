@@ -35,3 +35,9 @@ report.html
 report.md
 dag.png
 *.csv
+
+# Evaluation dataset (tracked) & generated plan files
+!evaluation/dataset_expected.csv
+!evaluation/dataset_predicted.csv
+!evaluation/eval_validation.csv
+evaluation/eval_plans/

@@ -1,0 +1,2346 @@
+id,script,expected_outcome
+01_range_projection,"== Physical Plan ==
+* Project (2)
++- * Range (1)
+
+
+(1) Range [codegen id : 1]
+Output [1]: [id#0L]
+Arguments: Range (0, 1000000, step=1, splits=Some(8))
+
+(2) Project [codegen id : 1]
+Output [2]: [id#0L AS order_id#2L, cast(((id#0L % 5000) + 100) as double) AS amount#5]
+Input [1]: [id#0L]
+",The plan is a simple projection over a generated range of order ids. All operators are narrow and are fused into a single pipeline with no shuffle. The whole query runs as 1 stage.
+02_filter_projection,"== Physical Plan ==
+* Project (3)
++- * Filter (2)
+   +- * Range (1)
+
+
+(1) Range [codegen id : 1]
+Output [1]: [id#14L]
+Arguments: Range (0, 1000000, step=1, splits=Some(8))
+
+(2) Filter [codegen id : 1]
+Input [1]: [id#14L]
+Condition : (cast(((id#14L % 5000) + 100) as double) > 1000.0)
+
+(3) Project [codegen id : 1]
+Output [2]: [id#14L AS order_id#16L, (id#14L % 10000) AS customer_id#17L]
+Input [1]: [id#14L]
+","A filter on amount is applied directly on top of the range source, before any other work. The filter and projection are narrow operators pipelined together with no data movement. The query executes as 1 stage."
+03_limit,"== Physical Plan ==
+CollectLimit (3)
++- * Project (2)
+   +- * Range (1)
+
+
+(1) Range [codegen id : 1]
+Output [1]: [id#28L]
+Arguments: Range (0, 1000000, step=1, splits=Some(8))
+
+(2) Project [codegen id : 1]
+Output [5]: [id#28L AS order_id#30L, (id#28L % 10000) AS customer_id#31L, (id#28L % 100) AS product_id#32L, cast(((id#28L % 5000) + 100) as double) AS amount#33, (id#28L % 5) AS status#34L]
+Input [1]: [id#28L]
+
+(3) CollectLimit
+Input [5]: [order_id#30L, customer_id#31L, product_id#32L, amount#33, status#34L]
+Arguments: 20
+","Results are capped by a CollectLimit of 20 rows, so only the first rows are fetched to the driver. The projection over the range is narrow and needs no shuffle. The job runs as 1 stage."
+04_union_two_sources,"== Physical Plan ==
+Union (5)
+:- * Project (2)
+:  +- * Range (1)
++- * Project (4)
+   +- * Range (3)
+
+
+(1) Range [codegen id : 1]
+Output [1]: [id#40L]
+Arguments: Range (0, 1000000, step=1, splits=Some(8))
+
+(2) Project [codegen id : 1]
+Output [2]: [id#40L AS order_id#42L, cast(((id#40L % 5000) + 100) as double) AS amount#45]
+Input [1]: [id#40L]
+
+(3) Range [codegen id : 2]
+Output [1]: [id#54L]
+Arguments: Range (0, 5000000, step=1, splits=Some(8))
+
+(4) Project [codegen id : 2]
+Output [2]: [id#54L AS order_id#62L, cast((id#54L % 86400) as double) AS amount#63]
+Input [1]: [id#54L]
+
+(5) Union
+","Two range sources are combined with a Union, which concatenates their partitions without moving data. Each branch is a narrow projection and neither side needs an exchange. The union runs as 1 stage."
+05_sort_within_partitions,"== Physical Plan ==
+* Sort (3)
++- * Project (2)
+   +- * Range (1)
+
+
+(1) Range [codegen id : 1]
+Output [1]: [id#68L]
+Arguments: Range (0, 1000000, step=1, splits=Some(8))
+
+(2) Project [codegen id : 1]
+Output [5]: [id#68L AS order_id#70L, (id#68L % 10000) AS customer_id#71L, (id#68L % 100) AS product_id#72L, cast(((id#68L % 5000) + 100) as double) AS amount#73, (id#68L % 5) AS status#74L]
+Input [1]: [id#68L]
+
+(3) Sort [codegen id : 1]
+Input [5]: [order_id#70L, customer_id#71L, product_id#72L, amount#73, status#74L]
+Arguments: [amount#73 ASC NULLS FIRST], false, 0
+","Rows are sorted by amount in ascending order within each partition only. Because the sort is local to each partition, the plan contains no shuffle. The query runs as 1 stage."
+06_long_narrow_pipeline,"== Physical Plan ==
+* Project (11)
++- * Filter (10)
+   +- * Sample (9)
+      +- * Project (8)
+         +- * Filter (7)
+            +- * Project (6)
+               +- * Filter (5)
+                  +- * Generate (4)
+                     +- * Project (3)
+                        +- * Filter (2)
+                           +- * Range (1)
+
+
+(1) Range [codegen id : 1]
+Output [1]: [id#80L]
+Arguments: Range (0, 1000000, step=1, splits=Some(8))
+
+(2) Filter [codegen id : 1]
+Input [1]: [id#80L]
+Condition : (cast(((id#80L % 5000) + 100) as double) > 200.0)
+
+(3) Project [codegen id : 1]
+Output [4]: [id#80L AS order_id#82L, (id#80L % 10000) AS customer_id#83L, cast(((id#80L % 5000) + 100) as double) AS amount#85, [a,b] AS tags#92]
+Input [1]: [id#80L]
+
+(4) Generate [codegen id : 1]
+Input [4]: [order_id#82L, customer_id#83L, amount#85, tags#92]
+Arguments: explode([a,b]), [order_id#82L, customer_id#83L, amount#85], false, [tag#100]
+
+(5) Filter [codegen id : 1]
+Input [4]: [order_id#82L, customer_id#83L, amount#85, tag#100]
+Condition : (tag#100 = a)
+
+(6) Project [codegen id : 1]
+Output [4]: [order_id#82L, customer_id#83L, amount#85, rand(7) AS r#108]
+Input [4]: [order_id#82L, customer_id#83L, amount#85, tag#100]
+
+(7) Filter [codegen id : 1]
+Input [4]: [order_id#82L, customer_id#83L, amount#85, r#108]
+Condition : (r#108 > 0.1)
+
+(8) Project [codegen id : 1]
+Output [3]: [order_id#82L, customer_id#83L, amount#85]
+Input [4]: [order_id#82L, customer_id#83L, amount#85, r#108]
+
+(9) Sample [codegen id : 1]
+Input [3]: [order_id#82L, customer_id#83L, amount#85]
+Arguments: 0.0, 0.5, false, 3
+
+(10) Filter [codegen id : 1]
+Input [3]: [order_id#82L, customer_id#83L, amount#85]
+Condition : ((amount#85 / 100.0) > 3.0)
+
+(11) Project [codegen id : 1]
+Output [3]: [order_id#82L, customer_id#83L, (amount#85 / 100.0) AS bucket#117]
+Input [3]: [order_id#82L, customer_id#83L, amount#85]
+","The plan is a long pipeline of 11 narrow operators, mixing filters, projections, an explode and a sample. No shuffle occurs anywhere in this chain. The explode (Generate) turns each input row into 2 rows before the later filters. Everything executes in 1 stage."
+07_groupby_sum,"== Physical Plan ==
+AdaptiveSparkPlan (6)
++- HashAggregate (5)
+   +- Exchange (4)
+      +- HashAggregate (3)
+         +- Project (2)
+            +- Range (1)
+
+
+(1) Range
+Output [1]: [id#130L]
+Arguments: Range (0, 1000000, step=1, splits=Some(8))
+
+(2) Project
+Output [2]: [(id#130L % 100) AS product_id#134L, cast(((id#130L % 5000) + 100) as double) AS amount#135]
+Input [1]: [id#130L]
+
+(3) HashAggregate
+Input [2]: [product_id#134L, amount#135]
+Keys [1]: [product_id#134L]
+Functions [1]: [partial_sum(amount#135)]
+Aggregate Attributes [1]: [sum#151]
+Results [2]: [product_id#134L, sum#152]
+
+(4) Exchange
+Input [2]: [product_id#134L, sum#152]
+Arguments: hashpartitioning(product_id#134L, 200), ENSURE_REQUIREMENTS, [plan_id=125]
+
+(5) HashAggregate
+Input [2]: [product_id#134L, sum#152]
+Keys [1]: [product_id#134L]
+Functions [1]: [sum(amount#135)]
+Aggregate Attributes [1]: [sum(amount#135)#147]
+Results [2]: [product_id#134L, sum(amount#135)#147 AS revenue#148]
+
+(6) AdaptiveSparkPlan
+Output [2]: [product_id#134L, revenue#148]
+Arguments: isFinalPlan=false
+","Revenue per product_id is computed with a two-phase hash aggregation: a partial sum on the map side and a final sum after the shuffle. Rows are hash-partitioned by product_id into 200 shuffle partitions. This exchange is required so that all rows of a product meet in the same partition for the final aggregate. The query runs as 2 stages. Each shuffle exchange marks a stage boundary. Adaptive query execution is enabled, so Spark can coalesce the shuffle partitions at runtime."
+08_groupby_multi_agg_aqe_off,"== Physical Plan ==
+* HashAggregate (5)
++- Exchange (4)
+   +- * HashAggregate (3)
+      +- * Project (2)
+         +- * Range (1)
+
+
+(1) Range [codegen id : 1]
+Output [1]: [id#153L]
+Arguments: Range (0, 1000000, step=1, splits=Some(8))
+
+(2) Project [codegen id : 1]
+Output [2]: [(id#153L % 10000) AS customer_id#156L, cast(((id#153L % 5000) + 100) as double) AS amount#158]
+Input [1]: [id#153L]
+
+(3) HashAggregate [codegen id : 1]
+Input [2]: [customer_id#156L, amount#158]
+Keys [1]: [customer_id#156L]
+Functions [3]: [partial_count(1), partial_avg(amount#158), partial_max(amount#158)]
+Aggregate Attributes [4]: [count#180L, sum#181, count#182L, max#183]
+Results [5]: [customer_id#156L, count#184L, sum#185, count#186L, max#187]
+
+(4) Exchange
+Input [5]: [customer_id#156L, count#184L, sum#185, count#186L, max#187]
+Arguments: hashpartitioning(customer_id#156L, 200), ENSURE_REQUIREMENTS, [plan_id=144]
+
+(5) HashAggregate [codegen id : 2]
+Input [5]: [customer_id#156L, count#184L, sum#185, count#186L, max#187]
+Keys [1]: [customer_id#156L]
+Functions [3]: [count(1), avg(amount#158), max(amount#158)]
+Aggregate Attributes [3]: [count(1)#170L, avg(amount#158)#172, max(amount#158)#174]
+Results [4]: [customer_id#156L, count(1)#170L AS orders#171L, avg(amount#158)#172 AS avg_amount#173, max(amount#158)#174 AS max_amount#175]
+","count, avg and max per customer are computed in two phases, with partial aggregates before the shuffle and merged results after it. The exchange hash-partitions rows on customer_id and is needed for the final aggregation. The plan has 2 stages. Each shuffle exchange marks a stage boundary. AQE is turned off, so the shuffle keeps a fixed 200 partitions that cannot be coalesced at runtime."
+09_distinct,"== Physical Plan ==
+AdaptiveSparkPlan (6)
++- HashAggregate (5)
+   +- Exchange (4)
+      +- HashAggregate (3)
+         +- Project (2)
+            +- Range (1)
+
+
+(1) Range
+Output [1]: [id#191L]
+Arguments: Range (0, 1000000, step=1, splits=Some(8))
+
+(2) Project
+Output [1]: [(id#191L % 100) AS product_id#195L]
+Input [1]: [id#191L]
+
+(3) HashAggregate
+Input [1]: [product_id#195L]
+Keys [1]: [product_id#195L]
+Functions: []
+Aggregate Attributes: []
+Results [1]: [product_id#195L]
+
+(4) Exchange
+Input [1]: [product_id#195L]
+Arguments: hashpartitioning(product_id#195L, 200), ENSURE_REQUIREMENTS, [plan_id=171]
+
+(5) HashAggregate
+Input [1]: [product_id#195L]
+Keys [1]: [product_id#195L]
+Functions: []
+Aggregate Attributes: []
+Results [1]: [product_id#195L]
+
+(6) AdaptiveSparkPlan
+Output [1]: [product_id#195L]
+Arguments: isFinalPlan=false
+","distinct() is executed as a hash aggregate on product_id with no aggregate functions, first locally per partition and then globally. Partial deduplication before the exchange reduces how many rows are shuffled. The shuffle hash-partitions by product_id and is structurally required to remove duplicates across partitions. The query has 2 stages. Each shuffle exchange marks a stage boundary. AQE is enabled for this plan."
+10_count_distinct,"== Physical Plan ==
+AdaptiveSparkPlan (9)
++- HashAggregate (8)
+   +- Exchange (7)
+      +- HashAggregate (6)
+         +- HashAggregate (5)
+            +- Exchange (4)
+               +- HashAggregate (3)
+                  +- Project (2)
+                     +- Range (1)
+
+
+(1) Range
+Output [1]: [id#204L]
+Arguments: Range (0, 1000000, step=1, splits=Some(8))
+
+(2) Project
+Output [2]: [(id#204L % 10000) AS customer_id#207L, (id#204L % 100) AS product_id#208L]
+Input [1]: [id#204L]
+
+(3) HashAggregate
+Input [2]: [customer_id#207L, product_id#208L]
+Keys [2]: [customer_id#207L, product_id#208L]
+Functions: []
+Aggregate Attributes: []
+Results [2]: [customer_id#207L, product_id#208L]
+
+(4) Exchange
+Input [2]: [customer_id#207L, product_id#208L]
+Arguments: hashpartitioning(customer_id#207L, product_id#208L, 200), ENSURE_REQUIREMENTS, [plan_id=194]
+
+(5) HashAggregate
+Input [2]: [customer_id#207L, product_id#208L]
+Keys [2]: [customer_id#207L, product_id#208L]
+Functions: []
+Aggregate Attributes: []
+Results [2]: [customer_id#207L, product_id#208L]
+
+(6) HashAggregate
+Input [2]: [customer_id#207L, product_id#208L]
+Keys [1]: [customer_id#207L]
+Functions [1]: [partial_count(distinct product_id#208L)]
+Aggregate Attributes [1]: [count(product_id#208L)#222L]
+Results [2]: [customer_id#207L, count#227L]
+
+(7) Exchange
+Input [2]: [customer_id#207L, count#227L]
+Arguments: hashpartitioning(customer_id#207L, 200), ENSURE_REQUIREMENTS, [plan_id=198]
+
+(8) HashAggregate
+Input [2]: [customer_id#207L, count#227L]
+Keys [1]: [customer_id#207L]
+Functions [1]: [count(distinct product_id#208L)]
+Aggregate Attributes [1]: [count(product_id#208L)#222L]
+Results [2]: [customer_id#207L, count(product_id#208L)#222L AS n#221L]
+
+(9) AdaptiveSparkPlan
+Output [2]: [customer_id#207L, n#221L]
+Arguments: isFinalPlan=false
+","countDistinct is planned as 2 rounds of aggregation: first deduplicating customer and product pairs, then counting them per customer. This needs 2 shuffles, one hash-partitioned on customer_id and product_id and one on customer_id alone. The extra exchange makes a distinct count more expensive than a plain count. The plan runs as 3 stages. Each shuffle exchange marks a stage boundary. AQE is enabled."
+11_global_sum,"== Physical Plan ==
+AdaptiveSparkPlan (6)
++- HashAggregate (5)
+   +- Exchange (4)
+      +- HashAggregate (3)
+         +- Project (2)
+            +- Range (1)
+
+
+(1) Range
+Output [1]: [id#229L]
+Arguments: Range (0, 1000000, step=1, splits=Some(8))
+
+(2) Project
+Output [1]: [cast(((id#229L % 5000) + 100) as double) AS amount#234]
+Input [1]: [id#229L]
+
+(3) HashAggregate
+Input [1]: [amount#234]
+Keys: []
+Functions [1]: [partial_sum(amount#234)]
+Aggregate Attributes [1]: [sum#249]
+Results [1]: [sum#250]
+
+(4) Exchange
+Input [1]: [sum#250]
+Arguments: SinglePartition, ENSURE_REQUIREMENTS, [plan_id=215]
+
+(5) HashAggregate
+Input [1]: [sum#250]
+Keys: []
+Functions [1]: [sum(amount#234)]
+Aggregate Attributes [1]: [sum(amount#234)#241]
+Results [1]: [sum(amount#234)#241 AS total#242]
+
+(6) AdaptiveSparkPlan
+Output [1]: [total#242]
+Arguments: isFinalPlan=false
+","The total is a global aggregation with no grouping keys, computed as partial sums per partition followed by a final sum. Partial results are gathered into a single partition through a SinglePartition exchange. Only one partial row per input partition reaches that exchange, so it is cheap here and not a real bottleneck. The query has 2 stages. Each shuffle exchange marks a stage boundary. AQE is enabled."
+12_having_then_order,"== Physical Plan ==
+AdaptiveSparkPlan (9)
++- Sort (8)
+   +- Exchange (7)
+      +- Filter (6)
+         +- HashAggregate (5)
+            +- Exchange (4)
+               +- HashAggregate (3)
+                  +- Project (2)
+                     +- Range (1)
+
+
+(1) Range
+Output [1]: [id#251L]
+Arguments: Range (0, 1000000, step=1, splits=Some(8))
+
+(2) Project
+Output [1]: [(id#251L % 10000) AS customer_id#254L]
+Input [1]: [id#251L]
+
+(3) HashAggregate
+Input [1]: [customer_id#254L]
+Keys [1]: [customer_id#254L]
+Functions [1]: [partial_count(1)]
+Aggregate Attributes [1]: [count#272L]
+Results [2]: [customer_id#254L, count#273L]
+
+(4) Exchange
+Input [2]: [customer_id#254L, count#273L]
+Arguments: hashpartitioning(customer_id#254L, 200), ENSURE_REQUIREMENTS, [plan_id=240]
+
+(5) HashAggregate
+Input [2]: [customer_id#254L, count#273L]
+Keys [1]: [customer_id#254L]
+Functions [1]: [count(1)]
+Aggregate Attributes [1]: [count(1)#268L]
+Results [2]: [customer_id#254L, count(1)#268L AS n#269L]
+
+(6) Filter
+Input [2]: [customer_id#254L, n#269L]
+Condition : (n#269L > 90)
+
+(7) Exchange
+Input [2]: [customer_id#254L, n#269L]
+Arguments: rangepartitioning(n#269L DESC NULLS LAST, 200), ENSURE_REQUIREMENTS, [plan_id=244]
+
+(8) Sort
+Input [2]: [customer_id#254L, n#269L]
+Arguments: [n#269L DESC NULLS LAST], true, 0
+
+(9) AdaptiveSparkPlan
+Output [2]: [customer_id#254L, n#269L]
+Arguments: isFinalPlan=false
+",Orders are counted per customer_id with a partial count before the shuffle and a final count after it. The first exchange hash-partitions on customer_id and is required by the aggregation. The HAVING-style filter on the count runs after the final aggregate. A second exchange range-partitions the filtered rows for the global ORDER BY on n in descending order. The plan runs as 3 stages. Each shuffle exchange marks a stage boundary. AQE is enabled.
+13_collect_list,"== Physical Plan ==
+AdaptiveSparkPlan (6)
++- ObjectHashAggregate (5)
+   +- Exchange (4)
+      +- ObjectHashAggregate (3)
+         +- Project (2)
+            +- Range (1)
+
+
+(1) Range
+Output [1]: [id#274L]
+Arguments: Range (0, 1000000, step=1, splits=Some(8))
+
+(2) Project
+Output [2]: [(id#274L % 10000) AS customer_id#277L, (id#274L % 100) AS product_id#278L]
+Input [1]: [id#274L]
+
+(3) ObjectHashAggregate
+Input [2]: [customer_id#277L, product_id#278L]
+Keys [1]: [customer_id#277L]
+Functions [1]: [partial_collect_list(product_id#278L, 0, 0)]
+Aggregate Attributes [1]: [buf#295]
+Results [2]: [customer_id#277L, buf#296]
+
+(4) Exchange
+Input [2]: [customer_id#277L, buf#296]
+Arguments: hashpartitioning(customer_id#277L, 200), ENSURE_REQUIREMENTS, [plan_id=261]
+
+(5) ObjectHashAggregate
+Input [2]: [customer_id#277L, buf#296]
+Keys [1]: [customer_id#277L]
+Functions [1]: [collect_list(product_id#278L, 0, 0)]
+Aggregate Attributes [1]: [collect_list(product_id#278L, 0, 0)#291]
+Results [2]: [customer_id#277L, collect_list(product_id#278L, 0, 0)#291 AS items#292]
+
+(6) AdaptiveSparkPlan
+Output [2]: [customer_id#277L, items#292]
+Arguments: isFinalPlan=false
+","collect_list forces an ObjectHashAggregate instead of a plain hash aggregate, again split into partial and final phases. Rows are hash-partitioned by customer_id for the final collection, and that shuffle is required. Collecting whole lists per key keeps every product_id in memory and can be memory-heavy for customers with many orders. The query has 2 stages. Each shuffle exchange marks a stage boundary. AQE is enabled."
+14_rollup,"== Physical Plan ==
+AdaptiveSparkPlan (7)
++- HashAggregate (6)
+   +- Exchange (5)
+      +- HashAggregate (4)
+         +- Expand (3)
+            +- Project (2)
+               +- Range (1)
+
+
+(1) Range
+Output [1]: [id#297L]
+Arguments: Range (0, 1000000, step=1, splits=Some(8))
+
+(2) Project
+Output [3]: [cast(((id#297L % 5000) + 100) as double) AS amount#302, (id#297L % 5) AS status#316L, (id#297L % 100) AS product_id#317L]
+Input [1]: [id#297L]
+
+(3) Expand
+Input [3]: [amount#302, status#316L, product_id#317L]
+Arguments: [[amount#302, status#316L, product_id#317L, 0], [amount#302, status#316L, null, 1], [amount#302, null, null, 3]], [amount#302, status#319L, product_id#320L, spark_grouping_id#318L]
+
+(4) HashAggregate
+Input [4]: [amount#302, status#319L, product_id#320L, spark_grouping_id#318L]
+Keys [3]: [status#319L, product_id#320L, spark_grouping_id#318L]
+Functions [1]: [partial_sum(amount#302)]
+Aggregate Attributes [1]: [sum#324]
+Results [4]: [status#319L, product_id#320L, spark_grouping_id#318L, sum#325]
+
+(5) Exchange
+Input [4]: [status#319L, product_id#320L, spark_grouping_id#318L, sum#325]
+Arguments: hashpartitioning(status#319L, product_id#320L, spark_grouping_id#318L, 200), ENSURE_REQUIREMENTS, [plan_id=282]
+
+(6) HashAggregate
+Input [4]: [status#319L, product_id#320L, spark_grouping_id#318L, sum#325]
+Keys [3]: [status#319L, product_id#320L, spark_grouping_id#318L]
+Functions [1]: [sum(amount#302)]
+Aggregate Attributes [1]: [sum(amount#302)#314]
+Results [3]: [status#319L, product_id#320L, sum(amount#302)#314 AS revenue#315]
+
+(7) AdaptiveSparkPlan
+Output [3]: [status#319L, product_id#320L, revenue#315]
+Arguments: isFinalPlan=false
+","The rollup is implemented with an Expand operator that emits each row once per grouping set, 3 copies here, before aggregation. Expand inflates the data volume that goes into the partial aggregate and the shuffle. The exchange hash-partitions on status, product_id and the grouping id, and is required for the final sum. The plan runs as 2 stages. Each shuffle exchange marks a stage boundary. AQE is enabled."
+15_cube_aqe_off,"== Physical Plan ==
+* HashAggregate (6)
++- Exchange (5)
+   +- * HashAggregate (4)
+      +- * Expand (3)
+         +- * Project (2)
+            +- * Range (1)
+
+
+(1) Range [codegen id : 1]
+Output [1]: [id#326L]
+Arguments: Range (0, 1000000, step=1, splits=Some(8))
+
+(2) Project [codegen id : 1]
+Output [2]: [(id#326L % 5) AS status#345L, (id#326L % 100) AS product_id#346L]
+Input [1]: [id#326L]
+
+(3) Expand [codegen id : 1]
+Input [2]: [status#345L, product_id#346L]
+Arguments: [[status#345L, product_id#346L, 0], [status#345L, null, 1], [null, product_id#346L, 2], [null, null, 3]], [status#348L, product_id#349L, spark_grouping_id#347L]
+
+(4) HashAggregate [codegen id : 1]
+Input [3]: [status#348L, product_id#349L, spark_grouping_id#347L]
+Keys [3]: [status#348L, product_id#349L, spark_grouping_id#347L]
+Functions [1]: [partial_count(1)]
+Aggregate Attributes [1]: [count#353L]
+Results [4]: [status#348L, product_id#349L, spark_grouping_id#347L, count#354L]
+
+(5) Exchange
+Input [4]: [status#348L, product_id#349L, spark_grouping_id#347L, count#354L]
+Arguments: hashpartitioning(status#348L, product_id#349L, spark_grouping_id#347L, 200), ENSURE_REQUIREMENTS, [plan_id=305]
+
+(6) HashAggregate [codegen id : 2]
+Input [4]: [status#348L, product_id#349L, spark_grouping_id#347L, count#354L]
+Keys [3]: [status#348L, product_id#349L, spark_grouping_id#347L]
+Functions [1]: [count(1)]
+Aggregate Attributes [1]: [count(1)#343L]
+Results [3]: [status#348L, product_id#349L, count(1)#343L AS n#344L]
+","cube() expands every row into 4 grouping-set copies through Expand before counting. Partial counts are computed before the shuffle and merged by a final aggregate after it. The hash-partitioned exchange on the grouping columns is required by the aggregation. There are 2 stages. Each shuffle exchange marks a stage boundary. Adaptive execution is disabled, so the shuffle keeps a static 200 partitions."
+16_repartition_then_groupby_same_key,"== Physical Plan ==
+AdaptiveSparkPlan (6)
++- HashAggregate (5)
+   +- HashAggregate (4)
+      +- Exchange (3)
+         +- Project (2)
+            +- Range (1)
+
+
+(1) Range
+Output [1]: [id#355L]
+Arguments: Range (0, 1000000, step=1, splits=Some(8))
+
+(2) Project
+Output [2]: [(id#355L % 10000) AS customer_id#358L, cast(((id#355L % 5000) + 100) as double) AS amount#360]
+Input [1]: [id#355L]
+
+(3) Exchange
+Input [2]: [customer_id#358L, amount#360]
+Arguments: hashpartitioning(customer_id#358L, 64), REPARTITION_BY_NUM, [plan_id=334]
+
+(4) HashAggregate
+Input [2]: [customer_id#358L, amount#360]
+Keys [1]: [customer_id#358L]
+Functions [1]: [partial_sum(amount#360)]
+Aggregate Attributes [1]: [sum#376]
+Results [2]: [customer_id#358L, sum#377]
+
+(5) HashAggregate
+Input [2]: [customer_id#358L, sum#377]
+Keys [1]: [customer_id#358L]
+Functions [1]: [sum(amount#360)]
+Aggregate Attributes [1]: [sum(amount#360)#372]
+Results [2]: [customer_id#358L, sum(amount#360)#372 AS s#373]
+
+(6) AdaptiveSparkPlan
+Output [2]: [customer_id#358L, s#373]
+Arguments: isFinalPlan=false
+","The explicit repartition(64, customer_id) hash-partitions the raw rows by customer_id. Because the data is already distributed on the grouping key, the aggregation reuses that partitioning and no additional exchange is added. Both aggregation phases run after the shuffle, so no map-side partial aggregation reduces the volume that is shuffled. The plan has 2 stages. Each shuffle exchange marks a stage boundary. AQE is enabled."
+17_broadcast_join_auto,"== Physical Plan ==
+AdaptiveSparkPlan (9)
++- Project (8)
+   +- BroadcastHashJoin Inner BuildRight (7)
+      :- Project (3)
+      :  +- Filter (2)
+      :     +- Range (1)
+      +- BroadcastExchange (6)
+         +- Project (5)
+            +- Range (4)
+
+
+(1) Range
+Output [1]: [id#378L]
+Arguments: Range (0, 1000000, step=1, splits=Some(8))
+
+(2) Filter
+Input [1]: [id#378L]
+Condition : isnotnull((id#378L % 10000))
+
+(3) Project
+Output [3]: [id#378L AS order_id#380L, (id#378L % 10000) AS customer_id#381L, cast(((id#378L % 5000) + 100) as double) AS amount#383]
+Input [1]: [id#378L]
+
+(4) Range
+Output [1]: [id#390L]
+Arguments: Range (0, 10000, step=1, splits=Some(8))
+
+(5) Project
+Output [2]: [id#390L AS customer_id#392L, (id#390L % 10) AS country_id#393L]
+Input [1]: [id#390L]
+
+(6) BroadcastExchange
+Input [2]: [customer_id#392L, country_id#393L]
+Arguments: HashedRelationBroadcastMode(List(input[0, bigint, false]),false), [plan_id=366]
+
+(7) BroadcastHashJoin
+Left keys [1]: [customer_id#381L]
+Right keys [1]: [customer_id#392L]
+Join type: Inner
+Join condition: None
+
+(8) Project
+Output [3]: [order_id#380L, amount#383, country_id#393L]
+Input [5]: [order_id#380L, customer_id#381L, amount#383, customer_id#392L, country_id#393L]
+
+(9) AdaptiveSparkPlan
+Output [3]: [order_id#380L, amount#383, country_id#393L]
+Arguments: isFinalPlan=false
+","Spark joins orders with the small customers table using a broadcast hash join, building the hash table from the customers side. The customers side is sent to every executor through a BroadcastExchange, so the large orders side is never shuffled. The main job runs as 1 stage, with the broadcast built separately. AQE is enabled."
+18_broadcast_hint_aqe_off,"== Physical Plan ==
+* Project (8)
++- * BroadcastHashJoin Inner BuildRight (7)
+   :- * Project (3)
+   :  +- * Filter (2)
+   :     +- * Range (1)
+   +- BroadcastExchange (6)
+      +- * Project (5)
+         +- * Range (4)
+
+
+(1) Range [codegen id : 2]
+Output [1]: [id#408L]
+Arguments: Range (0, 1000000, step=1, splits=Some(8))
+
+(2) Filter [codegen id : 2]
+Input [1]: [id#408L]
+Condition : isnotnull((id#408L % 100))
+
+(3) Project [codegen id : 2]
+Output [2]: [id#408L AS order_id#410L, (id#408L % 100) AS product_id#412L]
+Input [1]: [id#408L]
+
+(4) Range [codegen id : 1]
+Output [1]: [id#420L]
+Arguments: Range (0, 100, step=1, splits=Some(8))
+
+(5) Project [codegen id : 1]
+Output [2]: [id#420L AS product_id#422L, (id#420L % 10) AS category_id#423L]
+Input [1]: [id#420L]
+
+(6) BroadcastExchange
+Input [2]: [product_id#422L, category_id#423L]
+Arguments: HashedRelationBroadcastMode(List(input[0, bigint, false]),false), [plan_id=400]
+
+(7) BroadcastHashJoin [codegen id : 2]
+Left keys [1]: [product_id#412L]
+Right keys [1]: [product_id#422L]
+Join type: Inner
+Join condition: None
+
+(8) Project [codegen id : 2]
+Output [2]: [order_id#410L, category_id#423L]
+Input [4]: [order_id#410L, product_id#412L, product_id#422L, category_id#423L]
+","A broadcast hint makes Spark use a broadcast hash join with the 100-row products table as the build side. The products table is broadcast, so the orders side is joined in place without shuffling. The whole join runs as 1 stage. AQE is disabled for this query."
+19_sort_merge_join_small_side,"== Physical Plan ==
+AdaptiveSparkPlan (12)
++- Project (11)
+   +- SortMergeJoin Inner (10)
+      :- Sort (5)
+      :  +- Exchange (4)
+      :     +- Project (3)
+      :        +- Filter (2)
+      :           +- Range (1)
+      +- Sort (9)
+         +- Exchange (8)
+            +- Project (7)
+               +- Range (6)
+
+
+(1) Range
+Output [1]: [id#437L]
+Arguments: Range (0, 1000000, step=1, splits=Some(8))
+
+(2) Filter
+Input [1]: [id#437L]
+Condition : isnotnull((id#437L % 10000))
+
+(3) Project
+Output [3]: [id#437L AS order_id#439L, (id#437L % 10000) AS customer_id#440L, cast(((id#437L % 5000) + 100) as double) AS amount#442]
+Input [1]: [id#437L]
+
+(4) Exchange
+Input [3]: [order_id#439L, customer_id#440L, amount#442]
+Arguments: hashpartitioning(customer_id#440L, 200), ENSURE_REQUIREMENTS, [plan_id=439]
+
+(5) Sort
+Input [3]: [order_id#439L, customer_id#440L, amount#442]
+Arguments: [customer_id#440L ASC NULLS FIRST], false, 0
+
+(6) Range
+Output [1]: [id#449L]
+Arguments: Range (0, 10000, step=1, splits=Some(8))
+
+(7) Project
+Output [2]: [id#449L AS customer_id#451L, (id#449L % 4) AS segment#453L]
+Input [1]: [id#449L]
+
+(8) Exchange
+Input [2]: [customer_id#451L, segment#453L]
+Arguments: hashpartitioning(customer_id#451L, 200), ENSURE_REQUIREMENTS, [plan_id=440]
+
+(9) Sort
+Input [2]: [customer_id#451L, segment#453L]
+Arguments: [customer_id#451L ASC NULLS FIRST], false, 0
+
+(10) SortMergeJoin
+Left keys [1]: [customer_id#440L]
+Right keys [1]: [customer_id#451L]
+Join type: Inner
+Join condition: None
+
+(11) Project
+Output [3]: [order_id#439L, amount#442, segment#453L]
+Input [5]: [order_id#439L, customer_id#440L, amount#442, customer_id#451L, segment#453L]
+
+(12) AdaptiveSparkPlan
+Output [3]: [order_id#439L, amount#442, segment#453L]
+Arguments: isFinalPlan=false
+","Broadcasting is switched off, so Spark falls back to a sort-merge join between orders and customers. Both inputs are hash-partitioned on customer_id and shuffled so matching keys meet in the same partition. Each side is then sorted on customer_id before the merge. These 2 shuffles are required by the sort-merge join strategy. The customers side has only 10,000 rows, so a broadcast hash join would avoid both shuffles and sorts. The plan runs as 3 stages. Each shuffle exchange marks a stage boundary. AQE is enabled."
+20_sort_merge_join_two_large,"== Physical Plan ==
+AdaptiveSparkPlan (13)
++- Project (12)
+   +- SortMergeJoin Inner (11)
+      :- Sort (5)
+      :  +- Exchange (4)
+      :     +- Project (3)
+      :        +- Filter (2)
+      :           +- Range (1)
+      +- Sort (10)
+         +- Exchange (9)
+            +- Project (8)
+               +- Filter (7)
+                  +- Range (6)
+
+
+(1) Range
+Output [1]: [id#467L]
+Arguments: Range (0, 1000000, step=1, splits=Some(8))
+
+(2) Filter
+Input [1]: [id#467L]
+Condition : isnotnull((id#467L % 10000))
+
+(3) Project
+Output [2]: [id#467L AS order_id#469L, (id#467L % 10000) AS customer_id#470L]
+Input [1]: [id#467L]
+
+(4) Exchange
+Input [2]: [order_id#469L, customer_id#470L]
+Arguments: hashpartitioning(customer_id#470L, 200), ENSURE_REQUIREMENTS, [plan_id=478]
+
+(5) Sort
+Input [2]: [order_id#469L, customer_id#470L]
+Arguments: [customer_id#470L ASC NULLS FIRST], false, 0
+
+(6) Range
+Output [1]: [id#479L]
+Arguments: Range (0, 5000000, step=1, splits=Some(8))
+
+(7) Filter
+Input [1]: [id#479L]
+Condition : isnotnull((id#479L % 10000))
+
+(8) Project
+Output [3]: [id#479L AS event_id#481L, (id#479L % 10000) AS customer_id#482L, (id#479L % 86400) AS ts#483L]
+Input [1]: [id#479L]
+
+(9) Exchange
+Input [3]: [event_id#481L, customer_id#482L, ts#483L]
+Arguments: hashpartitioning(customer_id#482L, 200), ENSURE_REQUIREMENTS, [plan_id=479]
+
+(10) Sort
+Input [3]: [event_id#481L, customer_id#482L, ts#483L]
+Arguments: [customer_id#482L ASC NULLS FIRST], false, 0
+
+(11) SortMergeJoin
+Left keys [1]: [customer_id#470L]
+Right keys [1]: [customer_id#482L]
+Join type: Inner
+Join condition: None
+
+(12) Project
+Output [3]: [order_id#469L, event_id#481L, ts#483L]
+Input [5]: [order_id#469L, customer_id#470L, event_id#481L, customer_id#482L, ts#483L]
+
+(13) AdaptiveSparkPlan
+Output [3]: [order_id#469L, event_id#481L, ts#483L]
+Arguments: isFinalPlan=false
+","orders and events are both large, so Spark uses a sort-merge join on customer_id. Each side is hash-partitioned into 200 partitions and sorted on the join key. The shuffles on both sides are necessary because neither input is small enough to broadcast. The plan has 3 stages. Each shuffle exchange marks a stage boundary. AQE is enabled and may switch strategy or split skewed partitions at runtime."
+21_shuffled_hash_join_hint,"== Physical Plan ==
+AdaptiveSparkPlan (10)
++- Project (9)
+   +- ShuffledHashJoin Inner BuildRight (8)
+      :- Exchange (4)
+      :  +- Project (3)
+      :     +- Filter (2)
+      :        +- Range (1)
+      +- Exchange (7)
+         +- Project (6)
+            +- Range (5)
+
+
+(1) Range
+Output [1]: [id#497L]
+Arguments: Range (0, 1000000, step=1, splits=Some(8))
+
+(2) Filter
+Input [1]: [id#497L]
+Condition : isnotnull((id#497L % 10000))
+
+(3) Project
+Output [2]: [id#497L AS order_id#499L, (id#497L % 10000) AS customer_id#500L]
+Input [1]: [id#497L]
+
+(4) Exchange
+Input [2]: [order_id#499L, customer_id#500L]
+Arguments: hashpartitioning(customer_id#500L, 200), ENSURE_REQUIREMENTS, [plan_id=513]
+
+(5) Range
+Output [1]: [id#509L]
+Arguments: Range (0, 10000, step=1, splits=Some(8))
+
+(6) Project
+Output [2]: [id#509L AS customer_id#511L, (id#509L % 4) AS segment#513L]
+Input [1]: [id#509L]
+
+(7) Exchange
+Input [2]: [customer_id#511L, segment#513L]
+Arguments: hashpartitioning(customer_id#511L, 200), ENSURE_REQUIREMENTS, [plan_id=514]
+
+(8) ShuffledHashJoin
+Left keys [1]: [customer_id#500L]
+Right keys [1]: [customer_id#511L]
+Join type: Inner
+Join condition: None
+
+(9) Project
+Output [2]: [order_id#499L, segment#513L]
+Input [4]: [order_id#499L, customer_id#500L, customer_id#511L, segment#513L]
+
+(10) AdaptiveSparkPlan
+Output [2]: [order_id#499L, segment#513L]
+Arguments: isFinalPlan=false
+","The shuffle_hash hint selects a shuffled hash join, with the customers side used to build the in-memory hash table. Both sides are hash-partitioned on customer_id and joined without a sort step. The exchanges are required so that equal keys land in the same partition. The plan runs as 3 stages. Each shuffle exchange marks a stage boundary. AQE is enabled."
+22_left_semi_broadcast,"== Physical Plan ==
+AdaptiveSparkPlan (10)
++- Project (9)
+   +- BroadcastHashJoin LeftSemi BuildRight (8)
+      :- Project (3)
+      :  +- Filter (2)
+      :     +- Range (1)
+      +- BroadcastExchange (7)
+         +- Project (6)
+            +- Filter (5)
+               +- Range (4)
+
+
+(1) Range
+Output [1]: [id#526L]
+Arguments: Range (0, 1000000, step=1, splits=Some(8))
+
+(2) Filter
+Input [1]: [id#526L]
+Condition : ((((id#526L % 10000) % 4) = 1) AND isnotnull((id#526L % 10000)))
+
+(3) Project
+Output [5]: [id#526L AS order_id#528L, (id#526L % 10000) AS customer_id#529L, (id#526L % 100) AS product_id#530L, cast(((id#526L % 5000) + 100) as double) AS amount#531, (id#526L % 5) AS status#532L]
+Input [1]: [id#526L]
+
+(4) Range
+Output [1]: [id#538L]
+Arguments: Range (0, 10000, step=1, splits=Some(8))
+
+(5) Filter
+Input [1]: [id#538L]
+Condition : ((id#538L % 4) = 1)
+
+(6) Project
+Output [1]: [id#538L AS customer_id#540L]
+Input [1]: [id#538L]
+
+(7) BroadcastExchange
+Input [1]: [customer_id#540L]
+Arguments: HashedRelationBroadcastMode(List(input[0, bigint, false]),false), [plan_id=549]
+
+(8) BroadcastHashJoin
+Left keys [1]: [customer_id#529L]
+Right keys [1]: [customer_id#540L]
+Join type: LeftSemi
+Join condition: None
+
+(9) Project
+Output [5]: [customer_id#529L, order_id#528L, product_id#530L, amount#531, status#532L]
+Input [5]: [order_id#528L, customer_id#529L, product_id#530L, amount#531, status#532L]
+
+(10) AdaptiveSparkPlan
+Output [5]: [customer_id#529L, order_id#528L, product_id#530L, amount#531, status#532L]
+Arguments: isFinalPlan=false
+","The left semi join keeps orders whose customer_id exists in the filtered customers set. It is executed as a broadcast hash join, broadcasting the small filtered customers side. No shuffle of the orders table is needed. The job runs as 1 stage. AQE is enabled."
+23_left_anti_sort_merge,"== Physical Plan ==
+AdaptiveSparkPlan (12)
++- Project (11)
+   +- SortMergeJoin LeftAnti (10)
+      :- Sort (4)
+      :  +- Exchange (3)
+      :     +- Project (2)
+      :        +- Range (1)
+      +- Sort (9)
+         +- Exchange (8)
+            +- Project (7)
+               +- Filter (6)
+                  +- Range (5)
+
+
+(1) Range
+Output [1]: [id#551L]
+Arguments: Range (0, 1000000, step=1, splits=Some(8))
+
+(2) Project
+Output [5]: [id#551L AS order_id#553L, (id#551L % 10000) AS customer_id#554L, (id#551L % 100) AS product_id#555L, cast(((id#551L % 5000) + 100) as double) AS amount#556, (id#551L % 5) AS status#557L]
+Input [1]: [id#551L]
+
+(3) Exchange
+Input [5]: [order_id#553L, customer_id#554L, product_id#555L, amount#556, status#557L]
+Arguments: hashpartitioning(customer_id#554L, 200), ENSURE_REQUIREMENTS, [plan_id=581]
+
+(4) Sort
+Input [5]: [order_id#553L, customer_id#554L, product_id#555L, amount#556, status#557L]
+Arguments: [customer_id#554L ASC NULLS FIRST], false, 0
+
+(5) Range
+Output [1]: [id#563L]
+Arguments: Range (0, 10000, step=1, splits=Some(8))
+
+(6) Filter
+Input [1]: [id#563L]
+Condition : ((id#563L % 4) = 2)
+
+(7) Project
+Output [1]: [id#563L AS customer_id#565L]
+Input [1]: [id#563L]
+
+(8) Exchange
+Input [1]: [customer_id#565L]
+Arguments: hashpartitioning(customer_id#565L, 200), ENSURE_REQUIREMENTS, [plan_id=582]
+
+(9) Sort
+Input [1]: [customer_id#565L]
+Arguments: [customer_id#565L ASC NULLS FIRST], false, 0
+
+(10) SortMergeJoin
+Left keys [1]: [customer_id#554L]
+Right keys [1]: [customer_id#565L]
+Join type: LeftAnti
+Join condition: None
+
+(11) Project
+Output [5]: [customer_id#554L, order_id#553L, product_id#555L, amount#556, status#557L]
+Input [5]: [order_id#553L, customer_id#554L, product_id#555L, amount#556, status#557L]
+
+(12) AdaptiveSparkPlan
+Output [5]: [customer_id#554L, order_id#553L, product_id#555L, amount#556, status#557L]
+Arguments: isFinalPlan=false
+","The left anti join returns orders without a matching customer in the filtered segment. With broadcasting disabled it runs as a sort-merge join. Both inputs are hash-partitioned and sorted on customer_id, and these shuffles are required by the join. The filtered customers side is small, so broadcasting it would remove the shuffle of the large orders side. The plan has 3 stages. Each shuffle exchange marks a stage boundary. AQE is enabled."
+24_full_outer_join,"== Physical Plan ==
+AdaptiveSparkPlan (11)
++- Project (10)
+   +- SortMergeJoin FullOuter (9)
+      :- Sort (4)
+      :  +- Exchange (3)
+      :     +- Project (2)
+      :        +- Range (1)
+      +- Sort (8)
+         +- Exchange (7)
+            +- Project (6)
+               +- Range (5)
+
+
+(1) Range
+Output [1]: [id#576L]
+Arguments: Range (0, 1000000, step=1, splits=Some(8))
+
+(2) Project
+Output [5]: [id#576L AS order_id#578L, (id#576L % 10000) AS customer_id#579L, (id#576L % 100) AS product_id#580L, cast(((id#576L % 5000) + 100) as double) AS amount#581, (id#576L % 5) AS status#582L]
+Input [1]: [id#576L]
+
+(3) Exchange
+Input [5]: [order_id#578L, customer_id#579L, product_id#580L, amount#581, status#582L]
+Arguments: hashpartitioning(customer_id#579L, 200), ENSURE_REQUIREMENTS, [plan_id=612]
+
+(4) Sort
+Input [5]: [order_id#578L, customer_id#579L, product_id#580L, amount#581, status#582L]
+Arguments: [customer_id#579L ASC NULLS FIRST], false, 0
+
+(5) Range
+Output [1]: [id#588L]
+Arguments: Range (0, 5000000, step=1, splits=Some(8))
+
+(6) Project
+Output [3]: [id#588L AS event_id#590L, (id#588L % 10000) AS customer_id#591L, (id#588L % 86400) AS ts#592L]
+Input [1]: [id#588L]
+
+(7) Exchange
+Input [3]: [event_id#590L, customer_id#591L, ts#592L]
+Arguments: hashpartitioning(customer_id#591L, 200), ENSURE_REQUIREMENTS, [plan_id=613]
+
+(8) Sort
+Input [3]: [event_id#590L, customer_id#591L, ts#592L]
+Arguments: [customer_id#591L ASC NULLS FIRST], false, 0
+
+(9) SortMergeJoin
+Left keys [1]: [customer_id#579L]
+Right keys [1]: [customer_id#591L]
+Join type: FullOuter
+Join condition: None
+
+(10) Project
+Output [7]: [coalesce(customer_id#579L, customer_id#591L) AS customer_id#596L, order_id#578L, product_id#580L, amount#581, status#582L, event_id#590L, ts#592L]
+Input [8]: [order_id#578L, customer_id#579L, product_id#580L, amount#581, status#582L, event_id#590L, customer_id#591L, ts#592L]
+
+(11) AdaptiveSparkPlan
+Output [7]: [customer_id#596L, order_id#578L, product_id#580L, amount#581, status#582L, event_id#590L, ts#592L]
+Arguments: isFinalPlan=false
+","A full outer join cannot be broadcast, so Spark uses a sort-merge join between orders and events. Both sides are shuffled with hash partitioning on customer_id and sorted before merging. The shuffles are unavoidable for this join type. The plan runs as 3 stages. Each shuffle exchange marks a stage boundary. AQE is enabled."
+25_non_equi_join,"== Physical Plan ==
+AdaptiveSparkPlan (10)
++- Project (9)
+   +- BroadcastNestedLoopJoin Inner BuildRight (8)
+      :- Project (3)
+      :  +- Filter (2)
+      :     +- Range (1)
+      +- BroadcastExchange (7)
+         +- Project (6)
+            +- Filter (5)
+               +- Range (4)
+
+
+(1) Range
+Output [1]: [id#0L]
+Arguments: Range (0, 1000000, step=1, splits=Some(8))
+
+(2) Filter
+Input [1]: [id#0L]
+Condition : isnotnull(cast(((id#0L % 5000) + 100) as double))
+
+(3) Project
+Output [2]: [id#0L AS order_id#2L, cast(((id#0L % 5000) + 100) as double) AS amount#5]
+Input [1]: [id#0L]
+
+(4) Range
+Output [1]: [id#12L]
+Arguments: Range (0, 100, step=1, splits=Some(8))
+
+(5) Filter
+Input [1]: [id#12L]
+Condition : isnotnull(cast(((id#12L % 20) * 10) as double))
+
+(6) Project
+Output [2]: [(id#12L % 10) AS category_id#15L, cast(((id#12L % 20) * 10) as double) AS min_amount#16]
+Input [1]: [id#12L]
+
+(7) BroadcastExchange
+Input [2]: [category_id#15L, min_amount#16]
+Arguments: IdentityBroadcastMode, [plan_id=32]
+
+(8) BroadcastNestedLoopJoin
+Join type: Inner
+Join condition: (amount#5 < min_amount#16)
+
+(9) Project
+Output [2]: [order_id#2L, category_id#15L]
+Input [4]: [order_id#2L, amount#5, category_id#15L, min_amount#16]
+
+(10) AdaptiveSparkPlan
+Output [2]: [order_id#2L, category_id#15L]
+Arguments: isFinalPlan=false
+","The join condition amount < min_amount has no equality key, so Spark falls back to a broadcast nested loop join. Every order row is compared against every broadcast products row, which is costly and scales with the product of both input sizes. The small products side is broadcast, so no shuffle is needed. The query runs as 1 stage. AQE is enabled."
+26_cartesian_product,"== Physical Plan ==
+CartesianProduct Inner (5)
+:- * Project (2)
+:  +- * Range (1)
++- * Project (4)
+   +- * Range (3)
+
+
+(1) Range [codegen id : 1]
+Output [1]: [id#644L]
+Arguments: Range (0, 1000000, step=1, splits=Some(8))
+
+(2) Project [codegen id : 1]
+Output [5]: [id#644L AS order_id#646L, (id#644L % 10000) AS customer_id#647L, (id#644L % 100) AS product_id#648L, cast(((id#644L % 5000) + 100) as double) AS amount#649, (id#644L % 5) AS status#650L]
+Input [1]: [id#644L]
+
+(3) Range [codegen id : 2]
+Output [1]: [id#656L]
+Arguments: Range (0, 10000, step=1, splits=Some(8))
+
+(4) Project [codegen id : 2]
+Output [1]: [(id#656L % 4) AS segment#660L]
+Input [1]: [id#656L]
+
+(5) CartesianProduct
+Join type: Inner
+Join condition: None
+","crossJoin with broadcasting disabled produces a CartesianProduct between orders and customer segments. Every pair of rows is emitted, so the output size is the product of both inputs and very expensive. A cartesian product should be avoided unless the cross join is truly intended. The plan runs as 1 stage."
+27_three_way_broadcast,"== Physical Plan ==
+AdaptiveSparkPlan (15)
++- Project (14)
+   +- BroadcastHashJoin Inner BuildRight (13)
+      :- Project (9)
+      :  +- BroadcastHashJoin Inner BuildRight (8)
+      :     :- Project (3)
+      :     :  +- Filter (2)
+      :     :     +- Range (1)
+      :     +- BroadcastExchange (7)
+      :        +- Project (6)
+      :           +- Filter (5)
+      :              +- Range (4)
+      +- BroadcastExchange (12)
+         +- Project (11)
+            +- Range (10)
+
+
+(1) Range
+Output [1]: [id#671L]
+Arguments: Range (0, 1000000, step=1, splits=Some(8))
+
+(2) Filter
+Input [1]: [id#671L]
+Condition : isnotnull((id#671L % 10000))
+
+(3) Project
+Output [2]: [id#671L AS order_id#673L, (id#671L % 10000) AS customer_id#674L]
+Input [1]: [id#671L]
+
+(4) Range
+Output [1]: [id#683L]
+Arguments: Range (0, 10000, step=1, splits=Some(8))
+
+(5) Filter
+Input [1]: [id#683L]
+Condition : isnotnull((id#683L % 10))
+
+(6) Project
+Output [2]: [id#683L AS customer_id#685L, (id#683L % 10) AS country_id#686L]
+Input [1]: [id#683L]
+
+(7) BroadcastExchange
+Input [2]: [customer_id#685L, country_id#686L]
+Arguments: HashedRelationBroadcastMode(List(input[0, bigint, false]),false), [plan_id=688]
+
+(8) BroadcastHashJoin
+Left keys [1]: [customer_id#674L]
+Right keys [1]: [customer_id#685L]
+Join type: Inner
+Join condition: None
+
+(9) Project
+Output [2]: [order_id#673L, country_id#686L]
+Input [4]: [order_id#673L, customer_id#674L, customer_id#685L, country_id#686L]
+
+(10) Range
+Output [1]: [id#698L]
+Arguments: Range (0, 10, step=1, splits=Some(8))
+
+(11) Project
+Output [2]: [id#698L AS country_id#700L, (id#698L % 3) AS region_id#701L]
+Input [1]: [id#698L]
+
+(12) BroadcastExchange
+Input [2]: [country_id#700L, region_id#701L]
+Arguments: HashedRelationBroadcastMode(List(input[0, bigint, false]),false), [plan_id=692]
+
+(13) BroadcastHashJoin
+Left keys [1]: [country_id#686L]
+Right keys [1]: [country_id#700L]
+Join type: Inner
+Join condition: None
+
+(14) Project
+Output [2]: [order_id#673L, region_id#701L]
+Input [4]: [order_id#673L, country_id#686L, country_id#700L, region_id#701L]
+
+(15) AdaptiveSparkPlan
+Output [2]: [order_id#673L, region_id#701L]
+Arguments: isFinalPlan=false
+","Both joins are broadcast hash joins: customers is broadcast for the first join and countries for the second. Because both dimension tables are small, the large orders side is never shuffled. The whole query runs as 1 stage. The 2 broadcasts are built as separate jobs. AQE is enabled."
+28_join_then_agg_same_key,"== Physical Plan ==
+AdaptiveSparkPlan (14)
++- HashAggregate (13)
+   +- HashAggregate (12)
+      +- Project (11)
+         +- SortMergeJoin Inner (10)
+            :- Sort (5)
+            :  +- Exchange (4)
+            :     +- Project (3)
+            :        +- Filter (2)
+            :           +- Range (1)
+            +- Sort (9)
+               +- Exchange (8)
+                  +- Project (7)
+                     +- Range (6)
+
+
+(1) Range
+Output [1]: [id#714L]
+Arguments: Range (0, 1000000, step=1, splits=Some(8))
+
+(2) Filter
+Input [1]: [id#714L]
+Condition : isnotnull((id#714L % 10000))
+
+(3) Project
+Output [2]: [(id#714L % 10000) AS customer_id#717L, cast(((id#714L % 5000) + 100) as double) AS amount#719]
+Input [1]: [id#714L]
+
+(4) Exchange
+Input [2]: [customer_id#717L, amount#719]
+Arguments: hashpartitioning(customer_id#717L, 200), ENSURE_REQUIREMENTS, [plan_id=731]
+
+(5) Sort
+Input [2]: [customer_id#717L, amount#719]
+Arguments: [customer_id#717L ASC NULLS FIRST], false, 0
+
+(6) Range
+Output [1]: [id#726L]
+Arguments: Range (0, 10000, step=1, splits=Some(8))
+
+(7) Project
+Output [1]: [id#726L AS customer_id#728L]
+Input [1]: [id#726L]
+
+(8) Exchange
+Input [1]: [customer_id#728L]
+Arguments: hashpartitioning(customer_id#728L, 200), ENSURE_REQUIREMENTS, [plan_id=732]
+
+(9) Sort
+Input [1]: [customer_id#728L]
+Arguments: [customer_id#728L ASC NULLS FIRST], false, 0
+
+(10) SortMergeJoin
+Left keys [1]: [customer_id#717L]
+Right keys [1]: [customer_id#728L]
+Join type: Inner
+Join condition: None
+
+(11) Project
+Output [2]: [customer_id#717L, amount#719]
+Input [3]: [customer_id#717L, amount#719, customer_id#728L]
+
+(12) HashAggregate
+Input [2]: [customer_id#717L, amount#719]
+Keys [1]: [customer_id#717L]
+Functions [1]: [partial_sum(amount#719)]
+Aggregate Attributes [1]: [sum#752]
+Results [2]: [customer_id#717L, sum#753]
+
+(13) HashAggregate
+Input [2]: [customer_id#717L, sum#753]
+Keys [1]: [customer_id#717L]
+Functions [1]: [sum(amount#719)]
+Aggregate Attributes [1]: [sum(amount#719)#748]
+Results [2]: [customer_id#717L, sum(amount#719)#748 AS spend#749]
+
+(14) AdaptiveSparkPlan
+Output [2]: [customer_id#717L, spend#749]
+Arguments: isFinalPlan=false
+","With broadcasting disabled, orders and customers are joined with a sort-merge join on customer_id. Both inputs are hash-partitioned and sorted on customer_id for the merge. The aggregation by customer_id reuses the join's partitioning, so no extra exchange is added for it. Both the partial and final aggregation run after the join. The plan has 3 stages. Each shuffle exchange marks a stage boundary. AQE is enabled."
+29_join_then_agg_other_key_aqe_off,"== Physical Plan ==
+* HashAggregate (14)
++- Exchange (13)
+   +- * HashAggregate (12)
+      +- * Project (11)
+         +- * SortMergeJoin Inner (10)
+            :- * Sort (5)
+            :  +- Exchange (4)
+            :     +- * Project (3)
+            :        +- * Filter (2)
+            :           +- * Range (1)
+            +- * Sort (9)
+               +- Exchange (8)
+                  +- * Project (7)
+                     +- * Range (6)
+
+
+(1) Range [codegen id : 1]
+Output [1]: [id#754L]
+Arguments: Range (0, 1000000, step=1, splits=Some(8))
+
+(2) Filter [codegen id : 1]
+Input [1]: [id#754L]
+Condition : isnotnull((id#754L % 10000))
+
+(3) Project [codegen id : 1]
+Output [2]: [(id#754L % 10000) AS customer_id#757L, cast(((id#754L % 5000) + 100) as double) AS amount#759]
+Input [1]: [id#754L]
+
+(4) Exchange
+Input [2]: [customer_id#757L, amount#759]
+Arguments: hashpartitioning(customer_id#757L, 200), ENSURE_REQUIREMENTS, [plan_id=785]
+
+(5) Sort [codegen id : 2]
+Input [2]: [customer_id#757L, amount#759]
+Arguments: [customer_id#757L ASC NULLS FIRST], false, 0
+
+(6) Range [codegen id : 3]
+Output [1]: [id#766L]
+Arguments: Range (0, 10000, step=1, splits=Some(8))
+
+(7) Project [codegen id : 3]
+Output [2]: [id#766L AS customer_id#768L, (id#766L % 10) AS country_id#769L]
+Input [1]: [id#766L]
+
+(8) Exchange
+Input [2]: [customer_id#768L, country_id#769L]
+Arguments: hashpartitioning(customer_id#768L, 200), ENSURE_REQUIREMENTS, [plan_id=791]
+
+(9) Sort [codegen id : 4]
+Input [2]: [customer_id#768L, country_id#769L]
+Arguments: [customer_id#768L ASC NULLS FIRST], false, 0
+
+(10) SortMergeJoin [codegen id : 5]
+Left keys [1]: [customer_id#757L]
+Right keys [1]: [customer_id#768L]
+Join type: Inner
+Join condition: None
+
+(11) Project [codegen id : 5]
+Output [2]: [amount#759, country_id#769L]
+Input [4]: [customer_id#757L, amount#759, customer_id#768L, country_id#769L]
+
+(12) HashAggregate [codegen id : 5]
+Input [2]: [amount#759, country_id#769L]
+Keys [1]: [country_id#769L]
+Functions [1]: [partial_sum(amount#759)]
+Aggregate Attributes [1]: [sum#792]
+Results [2]: [country_id#769L, sum#793]
+
+(13) Exchange
+Input [2]: [country_id#769L, sum#793]
+Arguments: hashpartitioning(country_id#769L, 200), ENSURE_REQUIREMENTS, [plan_id=800]
+
+(14) HashAggregate [codegen id : 6]
+Input [2]: [country_id#769L, sum#793]
+Keys [1]: [country_id#769L]
+Functions [1]: [sum(amount#759)]
+Aggregate Attributes [1]: [sum(amount#759)#788]
+Results [2]: [country_id#769L, sum(amount#759)#788 AS spend#789]
+","Orders and customers are joined with a sort-merge join, shuffling both sides by customer_id. Grouping by country_id needs a new hash partitioning, adding a third exchange after the join. Revenue per country is aggregated in two phases around that shuffle. Broadcasting the small customers table would remove the 2 join shuffles. The plan runs as 4 stages. Each shuffle exchange marks a stage boundary. AQE is disabled, so all shuffles use a static 200 partitions."
+30_self_join_reused_exchange,"== Physical Plan ==
+* Project (9)
++- * SortMergeJoin Inner (8)
+   :- * Sort (5)
+   :  +- Exchange (4)
+   :     +- * Project (3)
+   :        +- * Filter (2)
+   :           +- * Range (1)
+   +- * Sort (7)
+      +- ReusedExchange (6)
+
+
+(1) Range [codegen id : 1]
+Output [1]: [id#38L]
+Arguments: Range (0, 1000000, step=1, splits=Some(8))
+
+(2) Filter [codegen id : 1]
+Input [1]: [id#38L]
+Condition : (((id#38L % 5) = 1) AND isnotnull((id#38L % 10000)))
+
+(3) Project [codegen id : 1]
+Output [2]: [id#38L AS order_id#40L, (id#38L % 10000) AS customer_id#41L]
+Input [1]: [id#38L]
+
+(4) Exchange
+Input [2]: [order_id#40L, customer_id#41L]
+Arguments: hashpartitioning(customer_id#41L, 200), ENSURE_REQUIREMENTS, [plan_id=74]
+
+(5) Sort [codegen id : 2]
+Input [2]: [order_id#40L, customer_id#41L]
+Arguments: [customer_id#41L ASC NULLS FIRST], false, 0
+
+(6) ReusedExchange [Reuses operator id: 4]
+Output [2]: [order_id#51L, customer_id#52L]
+
+(7) Sort [codegen id : 4]
+Input [2]: [order_id#51L, customer_id#52L]
+Arguments: [customer_id#52L ASC NULLS FIRST], false, 0
+
+(8) SortMergeJoin [codegen id : 5]
+Left keys [1]: [customer_id#41L]
+Right keys [1]: [customer_id#52L]
+Join type: Inner
+Join condition: None
+
+(9) Project [codegen id : 5]
+Output [2]: [order_id#40L, order_id#51L AS other#65L]
+Input [4]: [order_id#40L, customer_id#41L, order_id#51L, customer_id#52L]
+","The self-join on customer_id is executed as a sort-merge join. Both sides come from the same filtered orders subquery, so Spark reuses the first shuffle through a ReusedExchange instead of shuffling the data twice. Each side is still sorted on customer_id before the merge. The plan has 2 stages. Each shuffle exchange marks a stage boundary. AQE is disabled for this query."
+31_orderby_ascending,"== Physical Plan ==
+AdaptiveSparkPlan (5)
++- Sort (4)
+   +- Exchange (3)
+      +- Project (2)
+         +- Range (1)
+
+
+(1) Range
+Output [1]: [id#825L]
+Arguments: Range (0, 1000000, step=1, splits=Some(8))
+
+(2) Project
+Output [5]: [id#825L AS order_id#827L, (id#825L % 10000) AS customer_id#828L, (id#825L % 100) AS product_id#829L, cast(((id#825L % 5000) + 100) as double) AS amount#830, (id#825L % 5) AS status#831L]
+Input [1]: [id#825L]
+
+(3) Exchange
+Input [5]: [order_id#827L, customer_id#828L, product_id#829L, amount#830, status#831L]
+Arguments: rangepartitioning(amount#830 ASC NULLS FIRST, 200), ENSURE_REQUIREMENTS, [plan_id=888]
+
+(4) Sort
+Input [5]: [order_id#827L, customer_id#828L, product_id#829L, amount#830, status#831L]
+Arguments: [amount#830 ASC NULLS FIRST], true, 0
+
+(5) AdaptiveSparkPlan
+Output [5]: [order_id#827L, customer_id#828L, product_id#829L, amount#830, status#831L]
+Arguments: isFinalPlan=false
+",The global ORDER BY amount range-partitions the rows so that each partition covers a contiguous amount range. Each partition is then sorted by amount in ascending order. The range-partitioning shuffle is required for a total ordering. The plan has 2 stages. Each shuffle exchange marks a stage boundary. AQE is enabled.
+32_orderby_mixed_aqe_off,"== Physical Plan ==
+* Sort (4)
++- Exchange (3)
+   +- * Project (2)
+      +- * Range (1)
+
+
+(1) Range [codegen id : 1]
+Output [1]: [id#837L]
+Arguments: Range (0, 1000000, step=1, splits=Some(8))
+
+(2) Project [codegen id : 1]
+Output [5]: [id#837L AS order_id#839L, (id#837L % 10000) AS customer_id#840L, (id#837L % 100) AS product_id#841L, cast(((id#837L % 5000) + 100) as double) AS amount#842, (id#837L % 5) AS status#843L]
+Input [1]: [id#837L]
+
+(3) Exchange
+Input [5]: [order_id#839L, customer_id#840L, product_id#841L, amount#842, status#843L]
+Arguments: rangepartitioning(amount#842 DESC NULLS LAST, customer_id#840L ASC NULLS FIRST, 200), ENSURE_REQUIREMENTS, [plan_id=904]
+
+(4) Sort [codegen id : 2]
+Input [5]: [order_id#839L, customer_id#840L, product_id#841L, amount#842, status#843L]
+Arguments: [amount#842 DESC NULLS LAST, customer_id#840L ASC NULLS FIRST], true, 0
+","Rows are globally sorted by amount descending, with customer_id ascending as a tie-breaker. The exchange uses range partitioning on the sort keys and is needed for the total order. The plan has 2 stages. Each shuffle exchange marks a stage boundary. AQE is off, so the range shuffle uses a fixed 200 partitions."
+33_repartition_round_robin,"== Physical Plan ==
+AdaptiveSparkPlan (4)
++- Exchange (3)
+   +- Project (2)
+      +- Range (1)
+
+
+(1) Range
+Output [1]: [id#849L]
+Arguments: Range (0, 1000000, step=1, splits=Some(8))
+
+(2) Project
+Output [5]: [id#849L AS order_id#851L, (id#849L % 10000) AS customer_id#852L, (id#849L % 100) AS product_id#853L, cast(((id#849L % 5000) + 100) as double) AS amount#854, (id#849L % 5) AS status#855L]
+Input [1]: [id#849L]
+
+(3) Exchange
+Input [5]: [order_id#851L, customer_id#852L, product_id#853L, amount#854, status#855L]
+Arguments: RoundRobinPartitioning(64), REPARTITION_BY_NUM, [plan_id=924]
+
+(4) AdaptiveSparkPlan
+Output [5]: [order_id#851L, customer_id#852L, product_id#853L, amount#854, status#855L]
+Arguments: isFinalPlan=false
+","repartition(64) triggers a round-robin shuffle that spreads rows evenly across 64 partitions. No operator in this plan needs that distribution, so the shuffle is avoidable unless later work needs rebalanced partitions. The plan has 2 stages. Each shuffle exchange marks a stage boundary. AQE is enabled."
+34_repartition_by_column,"== Physical Plan ==
+AdaptiveSparkPlan (4)
++- Exchange (3)
+   +- Project (2)
+      +- Range (1)
+
+
+(1) Range
+Output [1]: [id#861L]
+Arguments: Range (0, 1000000, step=1, splits=Some(8))
+
+(2) Project
+Output [5]: [id#861L AS order_id#863L, (id#861L % 10000) AS customer_id#864L, (id#861L % 100) AS product_id#865L, cast(((id#861L % 5000) + 100) as double) AS amount#866, (id#861L % 5) AS status#867L]
+Input [1]: [id#861L]
+
+(3) Exchange
+Input [5]: [order_id#863L, customer_id#864L, product_id#865L, amount#866, status#867L]
+Arguments: hashpartitioning(customer_id#864L, 200), REPARTITION_BY_COL, [plan_id=936]
+
+(4) AdaptiveSparkPlan
+Output [5]: [order_id#863L, customer_id#864L, product_id#865L, amount#866, status#867L]
+Arguments: isFinalPlan=false
+","repartition(customer_id) hash-partitions all rows by customer_id into 200 partitions. The shuffle is user requested and nothing in this plan consumes the partitioning, so it is unnecessary here. The plan has 2 stages. Each shuffle exchange marks a stage boundary. AQE is enabled."
+35_repartition_by_range,"== Physical Plan ==
+AdaptiveSparkPlan (4)
++- Exchange (3)
+   +- Project (2)
+      +- Range (1)
+
+
+(1) Range
+Output [1]: [id#873L]
+Arguments: Range (0, 1000000, step=1, splits=Some(8))
+
+(2) Project
+Output [5]: [id#873L AS order_id#875L, (id#873L % 10000) AS customer_id#876L, (id#873L % 100) AS product_id#877L, cast(((id#873L % 5000) + 100) as double) AS amount#878, (id#873L % 5) AS status#879L]
+Input [1]: [id#873L]
+
+(3) Exchange
+Input [5]: [order_id#875L, customer_id#876L, product_id#877L, amount#878, status#879L]
+Arguments: rangepartitioning(amount#878 ASC NULLS FIRST, 16), REPARTITION_BY_NUM, [plan_id=948]
+
+(4) AdaptiveSparkPlan
+Output [5]: [order_id#875L, customer_id#876L, product_id#877L, amount#878, status#879L]
+Arguments: isFinalPlan=false
+","repartitionByRange(16, amount) range-partitions rows into 16 partitions of contiguous amount values. The data is shuffled but not sorted within partitions. The plan has 2 stages. Each shuffle exchange marks a stage boundary. AQE is enabled."
+36_repartition_to_one,"== Physical Plan ==
+AdaptiveSparkPlan (4)
++- Exchange (3)
+   +- Project (2)
+      +- Range (1)
+
+
+(1) Range
+Output [1]: [id#885L]
+Arguments: Range (0, 1000000, step=1, splits=Some(8))
+
+(2) Project
+Output [5]: [id#885L AS order_id#887L, (id#885L % 10000) AS customer_id#888L, (id#885L % 100) AS product_id#889L, cast(((id#885L % 5000) + 100) as double) AS amount#890, (id#885L % 5) AS status#891L]
+Input [1]: [id#885L]
+
+(3) Exchange
+Input [5]: [order_id#887L, customer_id#888L, product_id#889L, amount#890, status#891L]
+Arguments: SinglePartition, REPARTITION_BY_NUM, [plan_id=960]
+
+(4) AdaptiveSparkPlan
+Output [5]: [order_id#887L, customer_id#888L, product_id#889L, amount#890, status#891L]
+Arguments: isFinalPlan=false
+","repartition(1) shuffles every order into a single partition. All downstream work then runs in one task, which removes parallelism and is a serious bottleneck for a million rows. The plan has 2 stages. Each shuffle exchange marks a stage boundary. AQE is enabled."
+37_coalesce_to_one,"== Physical Plan ==
+Coalesce (4)
++- * Project (3)
+   +- * Filter (2)
+      +- * Range (1)
+
+
+(1) Range [codegen id : 1]
+Output [1]: [id#897L]
+Arguments: Range (0, 1000000, step=1, splits=Some(8))
+
+(2) Filter [codegen id : 1]
+Input [1]: [id#897L]
+Condition : ((id#897L % 5) = 3)
+
+(3) Project [codegen id : 1]
+Output [5]: [id#897L AS order_id#899L, (id#897L % 10000) AS customer_id#900L, (id#897L % 100) AS product_id#901L, cast(((id#897L % 5000) + 100) as double) AS amount#902, (id#897L % 5) AS status#903L]
+Input [1]: [id#897L]
+
+(4) Coalesce
+Input [5]: [order_id#899L, customer_id#900L, product_id#901L, amount#902, status#903L]
+Arguments: 1
+",The status filter is applied directly on the range source. coalesce(1) merges all partitions into a single partition without a shuffle. This limits parallelism to one task even though no exchange appears in the plan. The query runs as 1 stage.
+38_top_n,"== Physical Plan ==
+TakeOrderedAndProject (3)
++- * Project (2)
+   +- * Range (1)
+
+
+(1) Range [codegen id : 1]
+Output [1]: [id#909L]
+Arguments: Range (0, 1000000, step=1, splits=Some(8))
+
+(2) Project [codegen id : 1]
+Output [5]: [id#909L AS order_id#911L, (id#909L % 10000) AS customer_id#912L, (id#909L % 100) AS product_id#913L, cast(((id#909L % 5000) + 100) as double) AS amount#914, (id#909L % 5) AS status#915L]
+Input [1]: [id#909L]
+
+(3) TakeOrderedAndProject
+Input [5]: [order_id#911L, customer_id#912L, product_id#913L, amount#914, status#915L]
+Arguments: 10, [amount#914 DESC NULLS LAST], [order_id#911L, customer_id#912L, product_id#913L, amount#914, status#915L]
+","ORDER BY amount DESC with LIMIT 10 is planned as a TakeOrderedAndProject top-N. Each partition keeps only its top 10 rows, which avoids a full global sort and range shuffle. The results come back ordered by amount descending. The query runs as 1 stage."
+39_sort_then_groupby,"== Physical Plan ==
+AdaptiveSparkPlan (8)
++- HashAggregate (7)
+   +- Exchange (6)
+      +- HashAggregate (5)
+         +- Sort (4)
+            +- Exchange (3)
+               +- Project (2)
+                  +- Range (1)
+
+
+(1) Range
+Output [1]: [id#921L]
+Arguments: Range (0, 1000000, step=1, splits=Some(8))
+
+(2) Project
+Output [2]: [(id#921L % 100) AS product_id#925L, cast(((id#921L % 5000) + 100) as double) AS amount#926]
+Input [1]: [id#921L]
+
+(3) Exchange
+Input [2]: [product_id#925L, amount#926]
+Arguments: rangepartitioning(amount#926 ASC NULLS FIRST, 200), ENSURE_REQUIREMENTS, [plan_id=1010]
+
+(4) Sort
+Input [2]: [product_id#925L, amount#926]
+Arguments: [amount#926 ASC NULLS FIRST], true, 0
+
+(5) HashAggregate
+Input [2]: [product_id#925L, amount#926]
+Keys [1]: [product_id#925L]
+Functions [1]: [partial_sum(amount#926)]
+Aggregate Attributes [1]: [sum#942]
+Results [2]: [product_id#925L, sum#943]
+
+(6) Exchange
+Input [2]: [product_id#925L, sum#943]
+Arguments: hashpartitioning(product_id#925L, 200), ENSURE_REQUIREMENTS, [plan_id=1014]
+
+(7) HashAggregate
+Input [2]: [product_id#925L, sum#943]
+Keys [1]: [product_id#925L]
+Functions [1]: [sum(amount#926)]
+Aggregate Attributes [1]: [sum(amount#926)#938]
+Results [2]: [product_id#925L, sum(amount#926)#938 AS revenue#939]
+
+(8) AdaptiveSparkPlan
+Output [2]: [product_id#925L, revenue#939]
+Arguments: isFinalPlan=false
+","The ORDER BY amount before the groupBy range-partitions and globally sorts all orders. The following aggregation re-shuffles the rows by product_id, so the earlier sort is redundant. Removing the orderBy would eliminate one shuffle and one full sort. Revenue per product is computed with partial and final aggregation around the hash-partitioned exchange. The plan runs as 3 stages. Each shuffle exchange marks a stage boundary. AQE is enabled."
+40_sort_merge_join_then_orderby,"== Physical Plan ==
+AdaptiveSparkPlan (14)
++- Sort (13)
+   +- Exchange (12)
+      +- Project (11)
+         +- SortMergeJoin Inner (10)
+            :- Sort (5)
+            :  +- Exchange (4)
+            :     +- Project (3)
+            :        +- Filter (2)
+            :           +- Range (1)
+            +- Sort (9)
+               +- Exchange (8)
+                  +- Project (7)
+                     +- Range (6)
+
+
+(1) Range
+Output [1]: [id#944L]
+Arguments: Range (0, 1000000, step=1, splits=Some(8))
+
+(2) Filter
+Input [1]: [id#944L]
+Condition : isnotnull((id#944L % 10000))
+
+(3) Project
+Output [5]: [id#944L AS order_id#946L, (id#944L % 10000) AS customer_id#947L, (id#944L % 100) AS product_id#948L, cast(((id#944L % 5000) + 100) as double) AS amount#949, (id#944L % 5) AS status#950L]
+Input [1]: [id#944L]
+
+(4) Exchange
+Input [5]: [order_id#946L, customer_id#947L, product_id#948L, amount#949, status#950L]
+Arguments: hashpartitioning(customer_id#947L, 200), ENSURE_REQUIREMENTS, [plan_id=1049]
+
+(5) Sort
+Input [5]: [order_id#946L, customer_id#947L, product_id#948L, amount#949, status#950L]
+Arguments: [customer_id#947L ASC NULLS FIRST], false, 0
+
+(6) Range
+Output [1]: [id#956L]
+Arguments: Range (0, 10000, step=1, splits=Some(8))
+
+(7) Project
+Output [3]: [id#956L AS customer_id#958L, (id#956L % 10) AS country_id#959L, (id#956L % 4) AS segment#960L]
+Input [1]: [id#956L]
+
+(8) Exchange
+Input [3]: [customer_id#958L, country_id#959L, segment#960L]
+Arguments: hashpartitioning(customer_id#958L, 200), ENSURE_REQUIREMENTS, [plan_id=1050]
+
+(9) Sort
+Input [3]: [customer_id#958L, country_id#959L, segment#960L]
+Arguments: [customer_id#958L ASC NULLS FIRST], false, 0
+
+(10) SortMergeJoin
+Left keys [1]: [customer_id#947L]
+Right keys [1]: [customer_id#958L]
+Join type: Inner
+Join condition: None
+
+(11) Project
+Output [7]: [customer_id#947L, order_id#946L, product_id#948L, amount#949, status#950L, country_id#959L, segment#960L]
+Input [8]: [order_id#946L, customer_id#947L, product_id#948L, amount#949, status#950L, customer_id#958L, country_id#959L, segment#960L]
+
+(12) Exchange
+Input [7]: [customer_id#947L, order_id#946L, product_id#948L, amount#949, status#950L, country_id#959L, segment#960L]
+Arguments: rangepartitioning(amount#949 DESC NULLS LAST, 200), ENSURE_REQUIREMENTS, [plan_id=1056]
+
+(13) Sort
+Input [7]: [customer_id#947L, order_id#946L, product_id#948L, amount#949, status#950L, country_id#959L, segment#960L]
+Arguments: [amount#949 DESC NULLS LAST], true, 0
+
+(14) AdaptiveSparkPlan
+Output [7]: [customer_id#947L, order_id#946L, product_id#948L, amount#949, status#950L, country_id#959L, segment#960L]
+Arguments: isFinalPlan=false
+","orders and customers are joined with a sort-merge join because broadcasting is disabled. Both join inputs are hash-partitioned on customer_id and sorted, and these shuffles are required by the join. A third shuffle range-partitions the joined rows for the final ORDER BY amount descending. The plan contains 3 sort operators, 2 for the merge join and 1 for the global ordering. The small customers table could be broadcast to remove the 2 join shuffles. The plan runs as 4 stages. Each shuffle exchange marks a stage boundary. AQE is enabled."
+41_window_partitioned_rank,"== Physical Plan ==
+AdaptiveSparkPlan (6)
++- Window (5)
+   +- Sort (4)
+      +- Exchange (3)
+         +- Project (2)
+            +- Range (1)
+
+
+(1) Range
+Output [1]: [id#971L]
+Arguments: Range (0, 1000000, step=1, splits=Some(8))
+
+(2) Project
+Output [5]: [id#971L AS order_id#973L, (id#971L % 10000) AS customer_id#974L, (id#971L % 100) AS product_id#975L, cast(((id#971L % 5000) + 100) as double) AS amount#976, (id#971L % 5) AS status#977L]
+Input [1]: [id#971L]
+
+(3) Exchange
+Input [5]: [order_id#973L, customer_id#974L, product_id#975L, amount#976, status#977L]
+Arguments: hashpartitioning(customer_id#974L, 200), ENSURE_REQUIREMENTS, [plan_id=1070]
+
+(4) Sort
+Input [5]: [order_id#973L, customer_id#974L, product_id#975L, amount#976, status#977L]
+Arguments: [customer_id#974L ASC NULLS FIRST, amount#976 DESC NULLS LAST], false, 0
+
+(5) Window
+Input [5]: [order_id#973L, customer_id#974L, product_id#975L, amount#976, status#977L]
+Arguments: [row_number() windowspecdefinition(customer_id#974L, amount#976 DESC NULLS LAST, specifiedwindowframe(RowFrame, unboundedpreceding$(), currentrow$())) AS rn#984], [customer_id#974L], [amount#976 DESC NULLS LAST]
+
+(6) AdaptiveSparkPlan
+Output [6]: [order_id#973L, customer_id#974L, product_id#975L, amount#976, status#977L, rn#984]
+Arguments: isFinalPlan=false
+","row_number over a window partitioned by customer_id requires hash-partitioning the rows by customer_id. Within each partition, rows are sorted by customer_id and amount descending before the Window operator ranks them. The shuffle is required so each customer's orders sit in one partition. The plan has 2 stages. Each shuffle exchange marks a stage boundary. AQE is enabled."
+42_window_without_partition,"== Physical Plan ==
+AdaptiveSparkPlan (6)
++- Window (5)
+   +- Sort (4)
+      +- Exchange (3)
+         +- Project (2)
+            +- Range (1)
+
+
+(1) Range
+Output [1]: [id#991L]
+Arguments: Range (0, 1000000, step=1, splits=Some(8))
+
+(2) Project
+Output [5]: [id#991L AS order_id#993L, (id#991L % 10000) AS customer_id#994L, (id#991L % 100) AS product_id#995L, cast(((id#991L % 5000) + 100) as double) AS amount#996, (id#991L % 5) AS status#997L]
+Input [1]: [id#991L]
+
+(3) Exchange
+Input [5]: [order_id#993L, customer_id#994L, product_id#995L, amount#996, status#997L]
+Arguments: SinglePartition, ENSURE_REQUIREMENTS, [plan_id=1085]
+
+(4) Sort
+Input [5]: [order_id#993L, customer_id#994L, product_id#995L, amount#996, status#997L]
+Arguments: [amount#996 ASC NULLS FIRST], false, 0
+
+(5) Window
+Input [5]: [order_id#993L, customer_id#994L, product_id#995L, amount#996, status#997L]
+Arguments: [row_number() windowspecdefinition(amount#996 ASC NULLS FIRST, specifiedwindowframe(RowFrame, unboundedpreceding$(), currentrow$())) AS rn#1004], [amount#996 ASC NULLS FIRST]
+
+(6) AdaptiveSparkPlan
+Output [6]: [order_id#993L, customer_id#994L, product_id#995L, amount#996, status#997L, rn#1004]
+Arguments: isFinalPlan=false
+","The window has no PARTITION BY clause, so Spark moves all rows into a single partition. That single partition is then sorted by amount and ranked by one task, a severe bottleneck for large data. Adding a partition key to the window would restore parallelism. The plan has 2 stages. Each shuffle exchange marks a stage boundary. AQE is enabled but cannot split a SinglePartition exchange."
+43_etl_filter_join_agg_sort,"== Physical Plan ==
+AdaptiveSparkPlan (14)
++- Sort (13)
+   +- Exchange (12)
+      +- HashAggregate (11)
+         +- Exchange (10)
+            +- HashAggregate (9)
+               +- Project (8)
+                  +- BroadcastHashJoin Inner BuildRight (7)
+                     :- Project (3)
+                     :  +- Filter (2)
+                     :     +- Range (1)
+                     +- BroadcastExchange (6)
+                        +- Project (5)
+                           +- Range (4)
+
+
+(1) Range
+Output [1]: [id#1011L]
+Arguments: Range (0, 1000000, step=1, splits=Some(8))
+
+(2) Filter
+Input [1]: [id#1011L]
+Condition : ((cast(((id#1011L % 5000) + 100) as double) > 1000.0) AND isnotnull((id#1011L % 10000)))
+
+(3) Project
+Output [2]: [(id#1011L % 10000) AS customer_id#1014L, cast(((id#1011L % 5000) + 100) as double) AS amount#1016]
+Input [1]: [id#1011L]
+
+(4) Range
+Output [1]: [id#1023L]
+Arguments: Range (0, 10000, step=1, splits=Some(8))
+
+(5) Project
+Output [2]: [id#1023L AS customer_id#1025L, (id#1023L % 10) AS country_id#1026L]
+Input [1]: [id#1023L]
+
+(6) BroadcastExchange
+Input [2]: [customer_id#1025L, country_id#1026L]
+Arguments: HashedRelationBroadcastMode(List(input[0, bigint, false]),false), [plan_id=1127]
+
+(7) BroadcastHashJoin
+Left keys [1]: [customer_id#1014L]
+Right keys [1]: [customer_id#1025L]
+Join type: Inner
+Join condition: None
+
+(8) Project
+Output [2]: [amount#1016, country_id#1026L]
+Input [4]: [customer_id#1014L, amount#1016, customer_id#1025L, country_id#1026L]
+
+(9) HashAggregate
+Input [2]: [amount#1016, country_id#1026L]
+Keys [1]: [country_id#1026L]
+Functions [1]: [partial_sum(amount#1016)]
+Aggregate Attributes [1]: [sum#1049]
+Results [2]: [country_id#1026L, sum#1050]
+
+(10) Exchange
+Input [2]: [country_id#1026L, sum#1050]
+Arguments: hashpartitioning(country_id#1026L, 200), ENSURE_REQUIREMENTS, [plan_id=1132]
+
+(11) HashAggregate
+Input [2]: [country_id#1026L, sum#1050]
+Keys [1]: [country_id#1026L]
+Functions [1]: [sum(amount#1016)]
+Aggregate Attributes [1]: [sum(amount#1016)#1045]
+Results [2]: [country_id#1026L, sum(amount#1016)#1045 AS revenue#1046]
+
+(12) Exchange
+Input [2]: [country_id#1026L, revenue#1046]
+Arguments: rangepartitioning(revenue#1046 DESC NULLS LAST, 200), ENSURE_REQUIREMENTS, [plan_id=1135]
+
+(13) Sort
+Input [2]: [country_id#1026L, revenue#1046]
+Arguments: [revenue#1046 DESC NULLS LAST], true, 0
+
+(14) AdaptiveSparkPlan
+Output [2]: [country_id#1026L, revenue#1046]
+Arguments: isFinalPlan=false
+","The amount filter is applied right after the orders range, before the join. orders is joined with the small customers table using a broadcast hash join, so no shuffle is needed for the join. Revenue per country_id is computed with partial and final hash aggregation around a hash-partitioned exchange. That exchange is required by the aggregation. A final exchange range-partitions the results for the ORDER BY revenue descending. The query runs as 3 stages. Each shuffle exchange marks a stage boundary. AQE is enabled."
+44_etl_shuffle_heavy_aqe_off,"== Physical Plan ==
+* Sort (16)
++- Exchange (15)
+   +- * HashAggregate (14)
+      +- Exchange (13)
+         +- * HashAggregate (12)
+            +- * Project (11)
+               +- * SortMergeJoin Inner (10)
+                  :- * Sort (5)
+                  :  +- Exchange (4)
+                  :     +- * Project (3)
+                  :        +- * Filter (2)
+                  :           +- * Range (1)
+                  +- * Sort (9)
+                     +- Exchange (8)
+                        +- * Project (7)
+                           +- * Range (6)
+
+
+(1) Range [codegen id : 1]
+Output [1]: [id#1051L]
+Arguments: Range (0, 1000000, step=1, splits=Some(8))
+
+(2) Filter [codegen id : 1]
+Input [1]: [id#1051L]
+Condition : ((cast(((id#1051L % 5000) + 100) as double) > 1000.0) AND isnotnull((id#1051L % 10000)))
+
+(3) Project [codegen id : 1]
+Output [2]: [(id#1051L % 10000) AS customer_id#1054L, cast(((id#1051L % 5000) + 100) as double) AS amount#1056]
+Input [1]: [id#1051L]
+
+(4) Exchange
+Input [2]: [customer_id#1054L, amount#1056]
+Arguments: hashpartitioning(customer_id#1054L, 200), ENSURE_REQUIREMENTS, [plan_id=1190]
+
+(5) Sort [codegen id : 2]
+Input [2]: [customer_id#1054L, amount#1056]
+Arguments: [customer_id#1054L ASC NULLS FIRST], false, 0
+
+(6) Range [codegen id : 3]
+Output [1]: [id#1063L]
+Arguments: Range (0, 10000, step=1, splits=Some(8))
+
+(7) Project [codegen id : 3]
+Output [2]: [id#1063L AS customer_id#1065L, (id#1063L % 10) AS country_id#1066L]
+Input [1]: [id#1063L]
+
+(8) Exchange
+Input [2]: [customer_id#1065L, country_id#1066L]
+Arguments: hashpartitioning(customer_id#1065L, 200), ENSURE_REQUIREMENTS, [plan_id=1196]
+
+(9) Sort [codegen id : 4]
+Input [2]: [customer_id#1065L, country_id#1066L]
+Arguments: [customer_id#1065L ASC NULLS FIRST], false, 0
+
+(10) SortMergeJoin [codegen id : 5]
+Left keys [1]: [customer_id#1054L]
+Right keys [1]: [customer_id#1065L]
+Join type: Inner
+Join condition: None
+
+(11) Project [codegen id : 5]
+Output [2]: [amount#1056, country_id#1066L]
+Input [4]: [customer_id#1054L, amount#1056, customer_id#1065L, country_id#1066L]
+
+(12) HashAggregate [codegen id : 5]
+Input [2]: [amount#1056, country_id#1066L]
+Keys [1]: [country_id#1066L]
+Functions [1]: [partial_sum(amount#1056)]
+Aggregate Attributes [1]: [sum#1089]
+Results [2]: [country_id#1066L, sum#1090]
+
+(13) Exchange
+Input [2]: [country_id#1066L, sum#1090]
+Arguments: hashpartitioning(country_id#1066L, 200), ENSURE_REQUIREMENTS, [plan_id=1205]
+
+(14) HashAggregate [codegen id : 6]
+Input [2]: [country_id#1066L, sum#1090]
+Keys [1]: [country_id#1066L]
+Functions [1]: [sum(amount#1056)]
+Aggregate Attributes [1]: [sum(amount#1056)#1085]
+Results [2]: [country_id#1066L, sum(amount#1056)#1085 AS revenue#1086]
+
+(15) Exchange
+Input [2]: [country_id#1066L, revenue#1086]
+Arguments: rangepartitioning(revenue#1086 DESC NULLS LAST, 200), ENSURE_REQUIREMENTS, [plan_id=1209]
+
+(16) Sort [codegen id : 7]
+Input [2]: [country_id#1066L, revenue#1086]
+Arguments: [revenue#1086 DESC NULLS LAST], true, 0
+","The amount filter runs directly on the orders source before the join. With broadcasting disabled, the join becomes a sort-merge join that shuffles and sorts both sides on customer_id. Grouping by country_id adds another hash-partitioned shuffle with partial and final aggregation. Sorting by revenue descending adds a fourth, range-partitioned shuffle. The plan contains 4 shuffle exchanges. It runs as 5 stages. Each shuffle exchange marks a stage boundary. Broadcasting the small customers side would remove 2 of the shuffles. AQE is disabled, so none of the shuffles can be coalesced or switched to a broadcast join at runtime."
+45_multi_shuffle_chain,"== Physical Plan ==
+AdaptiveSparkPlan (10)
++- Sort (9)
+   +- Exchange (8)
+      +- HashAggregate (7)
+         +- Exchange (6)
+            +- HashAggregate (5)
+               +- Project (4)
+                  +- Exchange (3)
+                     +- Project (2)
+                        +- Range (1)
+
+
+(1) Range
+Output [1]: [id#1094L]
+Arguments: Range (0, 1000000, step=1, splits=Some(8))
+
+(2) Project
+Output [3]: [(id#1094L % 10000) AS customer_id#1097L, (id#1094L % 100) AS product_id#1098L, cast(((id#1094L % 5000) + 100) as double) AS amount#1099]
+Input [1]: [id#1094L]
+
+(3) Exchange
+Input [3]: [customer_id#1097L, product_id#1098L, amount#1099]
+Arguments: hashpartitioning(product_id#1098L, 32), REPARTITION_BY_NUM, [plan_id=1273]
+
+(4) Project
+Output [2]: [customer_id#1097L, amount#1099]
+Input [3]: [customer_id#1097L, product_id#1098L, amount#1099]
+
+(5) HashAggregate
+Input [2]: [customer_id#1097L, amount#1099]
+Keys [1]: [customer_id#1097L]
+Functions [1]: [partial_sum(amount#1099)]
+Aggregate Attributes [1]: [sum#1115]
+Results [2]: [customer_id#1097L, sum#1116]
+
+(6) Exchange
+Input [2]: [customer_id#1097L, sum#1116]
+Arguments: hashpartitioning(customer_id#1097L, 200), ENSURE_REQUIREMENTS, [plan_id=1279]
+
+(7) HashAggregate
+Input [2]: [customer_id#1097L, sum#1116]
+Keys [1]: [customer_id#1097L]
+Functions [1]: [sum(amount#1099)]
+Aggregate Attributes [1]: [sum(amount#1099)#1111]
+Results [2]: [customer_id#1097L, sum(amount#1099)#1111 AS s#1112]
+
+(8) Exchange
+Input [2]: [customer_id#1097L, s#1112]
+Arguments: rangepartitioning(s#1112 ASC NULLS FIRST, 200), ENSURE_REQUIREMENTS, [plan_id=1282]
+
+(9) Sort
+Input [2]: [customer_id#1097L, s#1112]
+Arguments: [s#1112 ASC NULLS FIRST], true, 0
+
+(10) AdaptiveSparkPlan
+Output [2]: [customer_id#1097L, s#1112]
+Arguments: isFinalPlan=false
+","repartition(32, product_id) shuffles all rows by product_id first. The groupBy on customer_id immediately re-shuffles by a different key, so the first repartition is redundant. Sums per customer are aggregated in two phases around the customer_id exchange. A third, range-partitioned exchange sorts the results by s in ascending order. The plan runs as 4 stages. Each shuffle exchange marks a stage boundary. AQE is enabled."
+46_union_then_agg,"== Physical Plan ==
+AdaptiveSparkPlan (11)
++- HashAggregate (10)
+   +- Exchange (9)
+      +- HashAggregate (8)
+         +- Union (7)
+            :- Project (3)
+            :  +- Filter (2)
+            :     +- Range (1)
+            +- Project (6)
+               +- Filter (5)
+                  +- Range (4)
+
+
+(1) Range
+Output [1]: [id#1117L]
+Arguments: Range (0, 1000000, step=1, splits=Some(8))
+
+(2) Filter
+Input [1]: [id#1117L]
+Condition : ((id#1117L % 5) = 1)
+
+(3) Project
+Output [1]: [(id#1117L % 100) AS product_id#1121L]
+Input [1]: [id#1117L]
+
+(4) Range
+Output [1]: [id#1129L]
+Arguments: Range (0, 1000000, step=1, splits=Some(8))
+
+(5) Filter
+Input [1]: [id#1129L]
+Condition : ((id#1129L % 5) = 4)
+
+(6) Project
+Output [1]: [(id#1129L % 100) AS product_id#1133L]
+Input [1]: [id#1129L]
+
+(7) Union
+
+(8) HashAggregate
+Input [1]: [product_id#1121L]
+Keys [1]: [product_id#1121L]
+Functions [1]: [partial_count(1)]
+Aggregate Attributes [1]: [count#1155L]
+Results [2]: [product_id#1121L, count#1156L]
+
+(9) Exchange
+Input [2]: [product_id#1121L, count#1156L]
+Arguments: hashpartitioning(product_id#1121L, 200), ENSURE_REQUIREMENTS, [plan_id=1319]
+
+(10) HashAggregate
+Input [2]: [product_id#1121L, count#1156L]
+Keys [1]: [product_id#1121L]
+Functions [1]: [count(1)]
+Aggregate Attributes [1]: [count(1)#1151L]
+Results [2]: [product_id#1121L, count(1)#1151L AS n#1152L]
+
+(11) AdaptiveSparkPlan
+Output [2]: [product_id#1121L, n#1152L]
+Arguments: isFinalPlan=false
+",Two filtered scans of orders are combined with a Union before aggregation. Counts per product_id are computed with a partial aggregate over the union and a final aggregate after the shuffle. The hash-partitioned exchange on product_id is required by the aggregation. Using one filter with both status values would avoid scanning the orders source twice. The plan runs as 2 stages. Each shuffle exchange marks a stage boundary. AQE is enabled.
+47_explode_then_agg,"== Physical Plan ==
+AdaptiveSparkPlan (7)
++- HashAggregate (6)
+   +- Exchange (5)
+      +- HashAggregate (4)
+         +- Generate (3)
+            +- Project (2)
+               +- Range (1)
+
+
+(1) Range
+Output [1]: [id#1157L]
+Arguments: Range (0, 1000000, step=1, splits=Some(8))
+
+(2) Project
+Output [1]: [cast(((id#1157L % 5000) + 100) as double) AS amount#1162]
+Input [1]: [id#1157L]
+
+(3) Generate
+Input [1]: [amount#1162]
+Arguments: explode([x,y,z]), [amount#1162], false, [tag#1170]
+
+(4) HashAggregate
+Input [2]: [amount#1162, tag#1170]
+Keys [1]: [tag#1170]
+Functions [1]: [partial_sum(amount#1162)]
+Aggregate Attributes [1]: [sum#1187]
+Results [2]: [tag#1170, sum#1188]
+
+(5) Exchange
+Input [2]: [tag#1170, sum#1188]
+Arguments: hashpartitioning(tag#1170, 200), ENSURE_REQUIREMENTS, [plan_id=1340]
+
+(6) HashAggregate
+Input [2]: [tag#1170, sum#1188]
+Keys [1]: [tag#1170]
+Functions [1]: [sum(amount#1162)]
+Aggregate Attributes [1]: [sum(amount#1162)#1183]
+Results [2]: [tag#1170, sum(amount#1162)#1183 AS s#1184]
+
+(7) AdaptiveSparkPlan
+Output [2]: [tag#1170, s#1184]
+Arguments: isFinalPlan=false
+",explode turns every order into 3 rows through a Generate operator. The partial aggregation after the explode shrinks the data to one row per tag and partition before shuffling. The exchange hash-partitions by tag and is required for the final sum. The plan has 2 stages. Each shuffle exchange marks a stage boundary. AQE is enabled.
+48_csv_scan_filter_agg,"== Physical Plan ==
+AdaptiveSparkPlan (6)
++- HashAggregate (5)
+   +- Exchange (4)
+      +- HashAggregate (3)
+         +- Filter (2)
+            +- Scan csv  (1)
+
+
+(1) Scan csv 
+Output [2]: [region#1208, amount#1209]
+Batched: false
+Location: InMemoryFileIndex [file:/data/sales.csv]
+PushedFilters: [IsNotNull(amount), GreaterThan(amount,500.0)]
+ReadSchema: struct<region:string,amount:double>
+
+(2) Filter
+Input [2]: [region#1208, amount#1209]
+Condition : (isnotnull(amount#1209) AND (amount#1209 > 500.0))
+
+(3) HashAggregate
+Input [2]: [region#1208, amount#1209]
+Keys [1]: [region#1208]
+Functions [1]: [partial_sum(amount#1209)]
+Aggregate Attributes [1]: [sum#1223]
+Results [2]: [region#1208, sum#1224]
+
+(4) Exchange
+Input [2]: [region#1208, sum#1224]
+Arguments: hashpartitioning(region#1208, 200), ENSURE_REQUIREMENTS, [plan_id=1378]
+
+(5) HashAggregate
+Input [2]: [region#1208, sum#1224]
+Keys [1]: [region#1208]
+Functions [1]: [sum(amount#1209)]
+Aggregate Attributes [1]: [sum(amount#1209)#1219]
+Results [2]: [region#1208, sum(amount#1209)#1219 AS revenue#1220]
+
+(6) AdaptiveSparkPlan
+Output [2]: [region#1208, revenue#1220]
+Arguments: isFinalPlan=false
+","The CSV file is read with a file scan whose amount predicate is pushed down to the scan. The Filter runs immediately after the scan, before the aggregation and shuffle. Revenue per region is computed with partial and final aggregation around a hash-partitioned exchange that is required by the grouping. The query runs as 2 stages. Each shuffle exchange marks a stage boundary. AQE is enabled."
+49_parquet_scan_filter_join,"== Physical Plan ==
+AdaptiveSparkPlan (9)
++- Project (8)
+   +- BroadcastHashJoin Inner BuildRight (7)
+      :- Project (3)
+      :  +- Filter (2)
+      :     +- Scan parquet  (1)
+      +- BroadcastExchange (6)
+         +- Filter (5)
+            +- Scan parquet  (4)
+
+
+(1) Scan parquet 
+Output [3]: [click_id#1225L, user_id#1226L, dwell_ms#1228L]
+Batched: true
+Location: InMemoryFileIndex [file:/data/clicks.parquet]
+PushedFilters: [IsNotNull(dwell_ms), GreaterThan(dwell_ms,3000), IsNotNull(user_id)]
+ReadSchema: struct<click_id:bigint,user_id:bigint,dwell_ms:bigint>
+
+(2) Filter
+Input [3]: [click_id#1225L, user_id#1226L, dwell_ms#1228L]
+Condition : ((isnotnull(dwell_ms#1228L) AND (dwell_ms#1228L > 3000)) AND isnotnull(user_id#1226L))
+
+(3) Project
+Output [2]: [click_id#1225L, user_id#1226L]
+Input [3]: [click_id#1225L, user_id#1226L, dwell_ms#1228L]
+
+(4) Scan parquet 
+Output [2]: [store_id#1234L, store_name#1235]
+Batched: true
+Location: InMemoryFileIndex [file:/data/stores.parquet]
+PushedFilters: [IsNotNull(store_id)]
+ReadSchema: struct<store_id:bigint,store_name:string>
+
+(5) Filter
+Input [2]: [store_id#1234L, store_name#1235]
+Condition : isnotnull(store_id#1234L)
+
+(6) BroadcastExchange
+Input [2]: [store_id#1234L, store_name#1235]
+Arguments: HashedRelationBroadcastMode(List(input[0, bigint, false]),false), [plan_id=1406]
+
+(7) BroadcastHashJoin
+Left keys [1]: [(user_id#1226L % 50)]
+Right keys [1]: [store_id#1234L]
+Join type: Inner
+Join condition: None
+
+(8) Project
+Output [2]: [click_id#1225L, store_name#1235]
+Input [4]: [click_id#1225L, user_id#1226L, store_id#1234L, store_name#1235]
+
+(9) AdaptiveSparkPlan
+Output [2]: [click_id#1225L, store_name#1235]
+Arguments: isFinalPlan=false
+","Both inputs are Parquet file scans, and the dwell_ms predicate is pushed down into the clicks scan. The filter sits directly above the scan, so rows are dropped before the join. The small stores table is broadcast and joined with a broadcast hash join, so the clicks data is never shuffled. The query runs as 1 stage. AQE is enabled."
+50_photon_broadcast_join_agg_sort,"== Physical Plan ==
+AdaptiveSparkPlan (23)
++- == Initial Plan ==
+   PhotonResultStage (22)
+   +- PhotonColumnarToRow (21)
+      +- PhotonSort (20)
+         +- PhotonShuffleExchangeSource (19)
+            +- PhotonShuffleMapStage (18)
+               +- PhotonShuffleExchangeSink (17)
+                  +- PhotonProject (16)
+                     +- PhotonGroupingAgg (15)
+                        +- PhotonShuffleExchangeSource (14)
+                           +- PhotonShuffleMapStage (13)
+                              +- PhotonShuffleExchangeSink (12)
+                                 +- PhotonGroupingAgg (11)
+                                    +- PhotonProject (10)
+                                       +- PhotonBroadcastHashJoin Inner (9)
+                                          :- PhotonGroupingAgg (3)
+                                          :  +- PhotonProject (2)
+                                          :     +- PhotonRange (1)
+                                          +- PhotonShuffleExchangeSource (8)
+                                             +- PhotonShuffleMapStage (7)
+                                                +- PhotonShuffleExchangeSink (6)
+                                                   +- PhotonProject (5)
+                                                      +- PhotonRange (4)
+
+
+(1) PhotonRange
+Output [1]: [id#11205L]
+Arguments: Range (0, 1000, step=1, splits=8)
+
+(2) PhotonProject
+Input [1]: [id#11205L]
+Arguments: [(id#11205L % 100) AS value#11207L]
+
+(3) PhotonGroupingAgg
+Input [1]: [value#11207L]
+Arguments: [value#11207L], [partial_count(1) AS count#11213L], [count#11213L], [value#11207L, count#11213L], false
+
+(4) PhotonRange
+Output [1]: [id#11208L]
+Arguments: Range (0, 100, step=1, splits=8)
+
+(5) PhotonProject
+Input [1]: [id#11208L]
+Arguments: [id#11208L AS value#11209L]
+
+(6) PhotonShuffleExchangeSink
+Input [1]: [value#11209L]
+Arguments: SinglePartition
+
+(7) PhotonShuffleMapStage
+Input [1]: [value#11209L]
+Arguments: EXECUTOR_BROADCAST, [id=#7702]
+
+(8) PhotonShuffleExchangeSource
+Input [1]: [value#11209L]
+
+(9) PhotonBroadcastHashJoin
+Left keys [1]: [value#11207L]
+Right keys [1]: [value#11209L]
+Join type: Inner
+Join condition: None
+
+(10) PhotonProject
+Input [3]: [value#11207L, count#11213L, value#11209L]
+Arguments: [value#11207L, count#11213L]
+
+(11) PhotonGroupingAgg
+Input [2]: [value#11207L, count#11213L]
+Arguments: [value#11207L], [merge_count(merge count#11213L) AS count#11213L], [count#11213L], [value#11207L, count#11213L], false
+
+(12) PhotonShuffleExchangeSink
+Input [2]: [value#11207L, count#11213L]
+Arguments: hashpartitioning(value#11207L, 16)
+
+(13) PhotonShuffleMapStage
+Input [2]: [value#11207L, count#11213L]
+Arguments: ENSURE_REQUIREMENTS, [id=#7711]
+
+(14) PhotonShuffleExchangeSource
+Input [2]: [value#11207L, count#11213L]
+
+(15) PhotonGroupingAgg
+Input [2]: [value#11207L, count#11213L]
+Arguments: [value#11207L], [finalmerge_count(merge count#11213L) AS count(1)#11211L], [count(1)#11211L], [value#11207L, count(1)#11211L], true
+
+(16) PhotonProject
+Input [2]: [value#11207L, count(1)#11211L]
+Arguments: [value#11207L, count(1)#11211L AS count#11210L]
+
+(17) PhotonShuffleExchangeSink
+Input [2]: [value#11207L, count#11210L]
+Arguments: rangepartitioning(count#11210L ASC NULLS FIRST, 16)
+
+(18) PhotonShuffleMapStage
+Input [2]: [value#11207L, count#11210L]
+Arguments: ENSURE_REQUIREMENTS, [id=#7719]
+
+(19) PhotonShuffleExchangeSource
+Input [2]: [value#11207L, count#11210L]
+
+(20) PhotonSort
+Input [2]: [value#11207L, count#11210L]
+Arguments: [count#11210L ASC NULLS FIRST]
+
+(21) PhotonColumnarToRow
+Input [2]: [value#11207L, count#11210L]
+
+(22) PhotonResultStage
+Input [2]: [value#11207L, count#11210L]
+
+(23) AdaptiveSparkPlan
+Output [2]: [value#11207L, count#11210L]
+Arguments: isFinalPlan=false
+
+
+== Photon Explanation ==
+The query is fully supported by Photon.
+","This is a Databricks Photon plan in which every operator runs natively in Photon. The join is executed as a Photon broadcast hash join. Only the small broadcast side goes through the SinglePartition exchange, so it is not a bottleneck. Counting starts with a partial aggregation before the join, followed by a merge aggregation and a final merge aggregation. The shuffle between the merge and final aggregation hash-partitions by value into 16 partitions and is required by the aggregation. The final ORDER BY count range-partitions the result and sorts it in ascending order. The plan runs as 4 stages. Each shuffle exchange marks a stage boundary. AQE is enabled."
