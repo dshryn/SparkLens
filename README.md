@@ -154,96 +154,6 @@ Benefits:
 
 ---
 
-# Evaluation
-
-SparkLens findings are scored against a fixed ground-truth dataset. The evaluation runs fully offline (no API calls, no model downloads) and is deterministic: the same inputs always give the same numbers.
-
-## What is measured
-
-* `evaluation/dataset_expected.csv` — 50 real Spark physical plans (49 rendered with Spark 3.5 `explain("formatted")`, 1 Databricks Photon plan), each with the analysis a correct analyzer should produce, written as plain sentences (316 atomic claims)
-* `evaluation/dataset_predicted.csv` — what SparkLens reports for each plan (`sparklens analyze <plan> --eval`: rule engine only, AI disabled)
-
-Both paragraphs are split into atomic claims and compared claim by claim:
-
-* **Precision** — share of SparkLens claims backed by the ground truth (false alarms lower it)
-* **Recall** — share of ground-truth claims that SparkLens states (misses lower it)
-* **F1** — balance of the two
-* **Final score (F0.5)** — weights precision above recall, because false alarms erode developer trust
-
-## How claims are matched
-
-```text
-SparkLens output / ground truth
-    ↓
-Atomic claims (sentences split at "so / because / but"; pronouns resolved)
-    ↓
-Spark concept normalisation ("SMJ" = "SortMergeJoin" = "sort-merge join")
-    ↓
-TF-IDF vectors (Spark-concept channel + wording channel)
-    ↓
-Directional matching (precision: backed by the ground truth; recall: stated by SparkLens)
-    ↓
-Consistency rules (stage counts, numbers, polarity, exclusive alternatives, advice vs observation)
-```
-
-## Validating the evaluator
-
-`python evaluation/evaluate_engine.py validate` measures the evaluator itself on 1,377 test cases whose correct answer is known by construction:
-
-| Test type | Example | Correct verdict |
-|---|---|---|
-| Paraphrase | the same claim in different words | match |
-| Number change | "3 stages" → "4 stages" | no match |
-| Polarity flip | enabled ↔ disabled, required ↔ avoidable | no match |
-| Concept swap | sort-merge ↔ broadcast hash join, hash ↔ range partitioning | no match |
-| Cross-plan claim | a claim about an operator the plan text does not contain | no match |
-| Role swap | same words, roles swapped | no match |
-
-It also checks invariance (reordering, duplicating or re-spacing findings never changes a score) and bounds (the ground truth as prediction scores 1.0, an empty answer 0.0, another plan's output far lower).
-
-## Current baseline
-
-Rule engine `c7daf3c`, 4 Oct 2026:
-
-| Metric | Value |
-|---|---|
-| SparkLens precision / recall / F1 | 0.637 / 0.478 / 0.546 |
-| SparkLens final score (F0.5) | **0.597** |
-| Evaluator accuracy, 1,377 known-answer cases | **92.2%** (dev split 94.4%, test split 90.2%) |
-| Evaluator false accepts / false rejects | 11.5% / 3.5% |
-| Invariance checks / bounds | 200 of 200 / pass |
-
-Known limitation: claims that use the same words with swapped roles ("orders is broadcast, customers is shuffled" vs the reverse) are not yet told apart.
-
-## Running the evaluation
-
-```bash
-pip install -r evaluation/requirements-eval.txt
-
-python evaluation/evaluate_engine.py selftest    # unit checks of the matcher and metrics
-python evaluation/evaluate_engine.py validate    # evaluator accuracy on known-answer cases
-python evaluation/evaluate_engine.py predict     # SparkLens (--eval) on all 50 plans -> dataset_predicted.csv
-python evaluation/evaluate_engine.py evaluate    # precision / recall / F1 / final score, change vs baseline
-python evaluation/evaluate_engine.py baseline    # freeze the current result as eval_baseline.json
-```
-
-`predict` runs the SparkLens CLI, so SparkLens itself must be installed (`pip install -e .`). After a rule change, run `predict --force` and then `evaluate`; improved and regressed plans are listed.
-
-To fill `dataset_predicted.csv` by hand, run `python evaluation/evaluate_engine.py export` and paste the output of `sparklens analyze evaluation/eval_plans/<id>.txt --eval` into each row.
-
-All evaluation files live in `evaluation/`; run the commands from the repository root.
-
-| File | Purpose |
-|---|---|
-| `evaluate_engine.py` | the evaluator (commands above) |
-| `dataset_expected.csv` | ground truth |
-| `dataset_predicted.csv` | SparkLens output being scored |
-| `eval_validation.csv` | paraphrases and role swaps used by `validate` |
-| `eval_baseline.json` | frozen reference result, including evaluator accuracy |
-| `eval_review.csv` | per-claim verdicts of the last run (generated, not tracked) |
-
----
-
 # Architecture
 
 ```text
@@ -303,30 +213,39 @@ report.html
 
 # Installation
 
-Clone the repository:
+SparkLens requires Python 3.12 or newer.
 
 ```bash
-git clone <repository-url>
-cd SparkLens
+pip install sparklens
 ```
 
-Install SparkLens locally:
+---
 
-```bash
-pip install -e .
+# Input Format
+
+SparkLens reads Spark physical plans in **formatted** explain mode, where every operator is numbered and described in its own block:
+
+```python
+df.explain("formatted")    # PySpark
 ```
+
+```sql
+EXPLAIN FORMATTED SELECT ...   -- Spark SQL / Databricks
+```
+
+Copy the printed plan into a text file (for example `plan.txt`) and pass that file to SparkLens. Plans printed by plain `df.explain()` or `df.explain(True)` are not supported yet.
 
 ---
 
 # AI Setup
 
-Create a `.env` file in the project root:
+Set the `GEMINI_API_KEY` environment variable, or create a `.env` file in the folder where you run SparkLens:
 
 ```env
 GEMINI_API_KEY=your_api_key_here
 ```
 
-SparkLens uses Google Gemini for natural-language explanations.
+SparkLens uses Google Gemini for natural-language explanations. The key is only needed for `--ai`; deterministic analysis runs fully offline.
 
 ---
 
@@ -335,7 +254,7 @@ SparkLens uses Google Gemini for natural-language explanations.
 ## Deterministic Analysis
 
 ```bash
-sparklens analyze sample_plans/broadcast_join.txt
+sparklens analyze plan.txt
 ```
 
 Outputs:
@@ -351,7 +270,7 @@ report.html
 ## AI-Enhanced Analysis
 
 ```bash
-sparklens analyze sample_plans/broadcast_join.txt --ai
+sparklens analyze plan.txt --ai
 ```
 
 Outputs:
@@ -409,7 +328,6 @@ SparkLens/
 ├── ai/
 ├── analyzer/
 ├── cli/
-├── evaluation/
 ├── models/
 ├── report/
 ├── rules/
@@ -426,15 +344,16 @@ SparkLens/
 
 # Running Tests
 
-Execute the full test suite:
+From a source checkout:
 
 ```bash
+pip install -e . pytest
 pytest
 ```
 
 ---
 
-# Current Capabilities (v0.1.0)
+# Current Capabilities (v0.1.1)
 
 * Spark Physical Plan Parsing
 * Execution DAG Construction
@@ -474,8 +393,18 @@ pytest
 Current Release:
 
 ```text
-v0.1.0
+v0.1.1
 ```
+
+---
+
+# Authors
+
+* Arya Mulay
+* Aryan Vinod Deshpande
+* Yashwant Sahoo
+
+Developed at Vellore Institute of Technology (VIT) under the guidance of Dr. Venketesh P.
 
 ---
 
