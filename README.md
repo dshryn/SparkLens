@@ -278,6 +278,14 @@ with AI-generated:
 * Execution Explanation
 * Recommendations
 
+## Evaluation Output
+
+```bash
+sparklens analyze evaluation/eval_plans/<id>.txt --eval
+```
+
+This prints the deterministic rule-engine findings as a single line without making AI API calls.
+
 ---
 
 # Example Findings

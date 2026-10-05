@@ -10,9 +10,11 @@ readme = "README.md"
 requires-python = ">=3.12"
 
 dependencies = [
+    "altair",
     "matplotlib",
     "networkx",
     "pydot",
+    "pyvis",
     "google-genai",
     "python-dotenv",
 ]

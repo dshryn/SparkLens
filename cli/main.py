@@ -16,10 +16,36 @@ from visualization.dag import DAGVisualizer
 load_dotenv()
 
 
+def findings_paragraph(result) -> str:
+
+    findings = result.analysis.report.findings
+
+    if not findings:
+        return "No issues found."
+
+    sentences = []
+
+    for finding in findings:
+
+        description = " ".join(
+            finding.description.split()
+        )
+
+        if description and description[-1] not in ".!?":
+            description += "."
+
+        sentences.append(
+            f"{finding.title}: {description}"
+        )
+
+    return " ".join(sentences)
+
+
 def analyze_command(
     plan_file: str,
     use_ai: bool,
     use_json: bool = False,
+    use_eval: bool = False,
 ) -> None:
 
     plan_path = Path(plan_file)
@@ -41,8 +67,12 @@ def analyze_command(
 
     result = pipeline.run(
         plan,
-        enable_ai=use_ai,
+        enable_ai=use_ai and not use_eval,
     )
+
+    if use_eval:
+        print(findings_paragraph(result))
+        return
 
     if use_json:
         print(pipeline_to_json(result))
@@ -98,6 +128,12 @@ def main():
         help="Output the pipeline result in JSON format"
     )
 
+    analyze_parser.add_argument(
+        "--eval",
+        action="store_true",
+        help="Print findings as a single-line paragraph for the evaluation dataset (AI disabled)"
+    )
+
     args = parser.parse_args()
 
     if args.command == "analyze":
@@ -106,6 +142,7 @@ def main():
             args.plan_file,
             args.ai,
             args.json,
+            args.eval,
         )
 
         return
