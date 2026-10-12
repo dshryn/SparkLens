@@ -1,23 +1,20 @@
 from __future__ import annotations
 
 from models.analysis_finding import AnalysisFinding
-from models.enums import OperatorType, Severity
+from models.enums import Severity
 from models.execution_dag import ExecutionDAG
 
 from .base import Rule
+from .shuffle_utils import is_shuffle_boundary
 
 
 class StageRule(Rule):
     """
     Detects Spark stage boundaries.
 
-    SparkLens defines an estimated stage count as:
-
-        1 initial stage + number of shuffle Exchange operators
-
-    Wide transformations such as aggregation do not themselves create an
-    additional stage. The Exchange that separates the stages is the actual
-    shuffle boundary.
+    Estimated stage count = 1 initial stage + number of shuffle boundaries.
+    The count sentence deliberately states ONE number (the stage count);
+    the boundary count lives in metadata.
     """
 
     def apply(
@@ -27,14 +24,14 @@ class StageRule(Rule):
 
         findings: list[AnalysisFinding] = []
 
-        exchange_count = 0
+        boundary_count = 0
 
         for operator in dag.operators.values():
 
-            if operator.operator_type != OperatorType.EXCHANGE:
+            if not is_shuffle_boundary(operator):
                 continue
 
-            exchange_count += 1
+            boundary_count += 1
 
             findings.append(
                 AnalysisFinding(
@@ -49,23 +46,20 @@ class StageRule(Rule):
                 )
             )
 
-        stage_count = 1 + exchange_count
+        stage_count = 1 + boundary_count
+        noun = "stage" if stage_count == 1 else "stages"
 
         findings.append(
             AnalysisFinding(
                 rule=self.__class__.__name__,
                 title="Estimated Stage Count",
-                description=(
-                    f"SparkLens estimates {stage_count} execution "
-                    f"stage(s) from {exchange_count} shuffle "
-                    f"boundary Exchange operator(s)."
-                ),
+                description=f"The plan runs as {stage_count} {noun}.",
                 severity=Severity.LOW,
                 metadata={
                     "positive": True,
                     "category": "stage_count",
                     "stage_count": stage_count,
-                    "shuffle_boundary_count": exchange_count,
+                    "shuffle_boundary_count": boundary_count,
                 },
             )
         )
