@@ -7,23 +7,25 @@ from visualization.dag import DAGVisualizer
 from visualization.interactive_renderer import (
     InteractiveRenderer,
 )
+from dashboard.components.ui import empty_state, page_header
+from dashboard.styles.theme import apply_theme, render_sidebar
 
-st.set_page_config(
-    page_title="Execution DAG",
-    page_icon="🕸️",
-    layout="wide",
+apply_theme()
+render_sidebar()
+
+page_header(
+    "Graph explorer",
+    "DAG Explorer",
+    "Inspect the operator graph and the severity signals attached to it.",
 )
-
-st.title("🕸️ Execution DAG")
-st.caption("Interactive Spark execution graph")
 
 result = st.session_state.get("analysis_result")
 
 if result is None:
 
-    st.warning(
-        "No analysis available.\n\n"
-        "Please analyze a Spark execution plan from the Analyzer page first."
+    empty_state(
+        "No graph available",
+        "Analyze a Spark execution plan from the Analyzer page first.",
     )
 
     st.stop()

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import streamlit as st
+import streamlit.components.v1 as components
 
 from report.exporters import (
     pipeline_to_json,
@@ -8,6 +9,7 @@ from report.exporters import (
     report_to_markdown,
 )
 from services.pipeline import PipelineResult
+from dashboard.components.ui import ai_panel, finding_card, metric_card
 
 
 def render_metrics(result: PipelineResult) -> None:
@@ -17,19 +19,45 @@ def render_metrics(result: PipelineResult) -> None:
 
     stats = result.analysis.statistics
 
-    c1, c2, c3, c4, c5, c6 = st.columns(6)
-
-    c1.metric("Operators", stats.operator_count)
-    c2.metric("Joins", stats.join_count)
-    c3.metric("Shuffles", stats.shuffle_count)
-    c4.metric("Stages", stats.stage_count)
-    c5.metric(
-        "Findings",
-        len(result.analysis.report.findings),
+    metrics = (
+        ("Operators", stats.operator_count, "◈"),
+        ("Joins", stats.join_count, "⟷"),
+        ("Shuffles", stats.shuffle_count, "⇄"),
+        ("Stages", stats.stage_count, "▦"),
+        ("Findings", len(result.analysis.report.findings), "!"),
+        ("Complexity", stats.complexity, "◒"),
     )
-    c6.metric(
-        "Complexity",
-        stats.complexity,
+    columns = st.columns(len(metrics))
+    for column, (label, value, icon) in zip(columns, metrics):
+        with column:
+            metric_card(label, value, icon)
+
+
+def render_health(result: PipelineResult) -> None:
+    stats = result.analysis.statistics
+    findings = result.analysis.report.findings
+    critical = sum(
+        finding.severity.value in {"Critical", "High"}
+        for finding in findings
+    )
+    if stats.operator_count:
+        score = max(0, round(100 - (critical * 12) - (stats.shuffle_count * 3)))
+    else:
+        score = 0
+    tone = "#22c55e" if score >= 80 else "#f59e0b" if score >= 55 else "#ef4444"
+    label = "Healthy" if score >= 80 else "Needs attention" if score >= 55 else "Review findings"
+    st.markdown(
+        f'<div class="sl-card sl-card-accent">'
+        f'<div class="sl-eyebrow">Execution health · heuristic</div>'
+        f'<div style="display:flex;align-items:end;gap:.65rem">'
+        f'<span style="font-size:2.2rem;font-weight:750;color:{tone}">{score}</span>'
+        f'<span class="sl-muted" style="padding-bottom:.35rem">/ 100 · {label}</span></div>'
+        f'<div style="height:7px;background:#26334d;border-radius:8px;margin-top:.75rem">'
+        f'<div style="height:7px;width:{score}%;background:{tone};border-radius:8px"></div></div>'
+        f'<div class="sl-muted" style="font-size:.75rem;margin-top:.55rem">'
+        f"Derived from deterministic findings and shuffle count; not runtime telemetry.</div>"
+        f"</div>",
+        unsafe_allow_html=True,
     )
 
 
@@ -81,32 +109,48 @@ def render_findings(
 
     st.subheader("Detected Findings")
 
-    rows = []
-
-    for finding in result.analysis.report.findings:
-
-        operator = None
-
-        if finding.operator_id is not None:
-            operator = result.analysis.dag.get_operator(finding.operator_id).name
-
-        rows.append(
-            {
-                "Severity": finding.severity.value,
-                "Rule": finding.rule,
-                "Operator": operator,
-                "Description": finding.description,
-            }
-        )
-
-    if rows:
-        st.dataframe(
-            rows,
-            use_container_width=True,
-            hide_index=True,
-        )
-    else:
+    findings = result.analysis.report.findings
+    if not findings:
         st.success("No optimization issues detected.")
+        return
+
+    filters = ["All", "Critical", "High", "Medium", "Low"]
+    selected = st.radio(
+        "Severity",
+        filters,
+        index=0,
+        key="finding_severity_filter",
+        horizontal=True,
+    )
+    query = st.text_input(
+        "Search findings",
+        placeholder="Search by title, rule, operator, or description",
+        key="finding_search",
+    ).lower()
+    visible = [
+        finding
+        for finding in findings
+        if (selected == "All" or finding.severity.value == selected)
+        and (
+            not query
+            or query in finding.title.lower()
+            or query in finding.rule.lower()
+            or query in finding.description.lower()
+        )
+    ]
+    if not visible:
+        st.info("No findings match the current filter.")
+        return
+    for index, finding in enumerate(visible):
+        operator = (
+            result.analysis.dag.get_operator(finding.operator_id).name
+            if finding.operator_id is not None
+            else None
+        )
+        if finding_card(finding, operator, f"finding_{index}"):
+            if finding.operator_id is not None:
+                st.session_state["selected_operator_id"] = finding.operator_id
+                st.info(f"Selected operator {finding.operator_id}: {operator}")
 
 
 def render_dag(
@@ -115,8 +159,6 @@ def render_dag(
     """
     Render the interactive execution DAG.
     """
-
-    import streamlit.components.v1 as components
 
     from visualization.dag import DAGVisualizer
 
@@ -145,27 +187,7 @@ def render_ai(
 
     explanation = result.explanation
 
-    st.subheader("AI Explanation")
-
-    st.markdown(explanation.explanation)
-
-    if explanation.recommendations:
-
-        st.divider()
-
-        st.subheader("Recommendations")
-
-        for recommendation in explanation.recommendations:
-            st.markdown(f"- {recommendation}")
-
-    if explanation.insights:
-
-        st.divider()
-
-        st.subheader("Insights")
-
-        for insight in explanation.insights:
-            st.markdown(f"**{insight.title}**\n\n{insight.description}")
+    ai_panel(explanation)
 
 
 def render_downloads(

@@ -6,6 +6,48 @@ AI explanation disabled.
 
 ## Findings
 
+### Broadcast Hash Join Detected
+Severity: **Low**
+Operator: **BroadcastHashJoin**
+
+Spark selected a Broadcast Hash Join for this operator. This strategy is typically efficient when one side of the join is sufficiently small to broadcast.
+
+### Sort Merge Join Detected
+Severity: **Medium**
+Operator: **SortMergeJoin**
+
+Spark selected a Sort Merge Join. This strategy usually requires both inputs to be shuffled and sorted before the join.
+
+### Broadcast Hash Join Detected
+Severity: **Low**
+Operator: **BroadcastHashJoin**
+
+Spark selected a Broadcast Hash Join for this operator. This strategy is typically efficient when one side of the join is sufficiently small to broadcast.
+
+### Broadcast Hash Join Detected
+Severity: **Low**
+Operator: **BroadcastHashJoin**
+
+Spark selected a Broadcast Hash Join for this operator. This strategy is typically efficient when one side of the join is sufficiently small to broadcast.
+
+### Shuffle Detected
+Severity: **Medium**
+Operator: **Exchange**
+
+A shuffle exchange redistributes data across partitions. Whether this shuffle is required, expected, or an optimization opportunity is determined by ExecutionQualityRule's evidence for this operator.
+
+### Shuffle Detected
+Severity: **Medium**
+Operator: **Exchange**
+
+A shuffle exchange redistributes data across partitions. Whether this shuffle is required, expected, or an optimization opportunity is determined by ExecutionQualityRule's evidence for this operator.
+
+### Shuffle Detected
+Severity: **Medium**
+Operator: **Exchange**
+
+A shuffle exchange redistributes data across partitions. Whether this shuffle is required, expected, or an optimization opportunity is determined by ExecutionQualityRule's evidence for this operator.
+
 ### Shuffle Detected
 Severity: **Medium**
 Operator: **Exchange**
@@ -18,11 +60,23 @@ Operator: **Exchange**
 
 Spark exchanges data between execution stages. Whether this exchange is required is determined by ExecutionQualityRule's evidence for this operator.
 
-### Hash Partitioning Detected
+### Exchange Operator
 Severity: **Medium**
 Operator: **Exchange**
 
-Spark redistributes rows using hash partitioning across executors.
+Spark exchanges data between execution stages. Whether this exchange is required is determined by ExecutionQualityRule's evidence for this operator.
+
+### Exchange Operator
+Severity: **Medium**
+Operator: **Exchange**
+
+Spark exchanges data between execution stages. Whether this exchange is required is determined by ExecutionQualityRule's evidence for this operator.
+
+### Exchange Operator
+Severity: **Medium**
+Operator: **Exchange**
+
+Spark exchanges data between execution stages. Whether this exchange is required is determined by ExecutionQualityRule's evidence for this operator.
 
 ### Aggregation
 Severity: **Low**
@@ -35,6 +89,48 @@ Severity: **Low**
 Operator: **HashAggregate**
 
 Spark performs an aggregation operation.
+
+### Aggregation
+Severity: **Low**
+Operator: **HashAggregaterd**
+
+Spark performs an aggregation operation.
+
+### Aggregation
+Severity: **Low**
+Operator: **HashAggregate**
+
+Spark performs an aggregation operation.
+
+### Sort Operation Detected
+Severity: **Medium**
+Operator: **Sort**
+
+Spark sorts the dataset before downstream processing.
+
+### Sort Operation Detected
+Severity: **Medium**
+Operator: **Sort**
+
+Spark sorts the dataset before downstream processing.
+
+### Stage Boundary Detected
+Severity: **Low**
+Operator: **Exchange**
+
+This Exchange represents a shuffle boundary between Spark execution stages.
+
+### Stage Boundary Detected
+Severity: **Low**
+Operator: **Exchange**
+
+This Exchange represents a shuffle boundary between Spark execution stages.
+
+### Stage Boundary Detected
+Severity: **Low**
+Operator: **Exchange**
+
+This Exchange represents a shuffle boundary between Spark execution stages.
 
 ### Stage Boundary Detected
 Severity: **Low**
@@ -45,58 +141,44 @@ This Exchange represents a shuffle boundary between Spark execution stages.
 ### Estimated Stage Count
 Severity: **Low**
 
-SparkLens estimates 2 execution stage(s) from 1 shuffle boundary Exchange operator(s).
+SparkLens estimates 5 execution stage(s) from 4 shuffle boundary Exchange operator(s).
+
+### Multiple Shuffle Operations
+Severity: **Medium**
+
+Multiple shuffle exchanges are present in the execution plan.
+
+### Multiple Sort Operations
+Severity: **Medium**
+
+Multiple sort operations are present in the execution plan.
 
 ### Multi-Stage Aggregation
 Severity: **Low**
 
 Multiple aggregation operators are present, indicating a multi-stage aggregation pipeline.
 
-### Required Shuffle (Aggregation)
-Severity: **Low**
-Operator: **Exchange**
-
-Spark inserts this shuffle to redistribute partially aggregated data so the final aggregation can combine results across partitions. This exchange is required by the two-phase aggregation strategy and is not an optimization target.
-
-### Two-Phase Aggregation
-Severity: **Low**
-Operator: **HashAggregate**
-
-Spark performs a partial (map-side) aggregation followed by a final aggregation across the shuffle boundary. This reduces the volume of data shuffled and is the expected, efficient strategy for this aggregation.
-
-### Early Filter / Filter Pushdown
-Severity: **Low**
-Operator: **Filter**
-
-The filter is applied immediately after the scan or source, before any shuffle or join. This reduces the volume of data carried through the rest of the plan and is the expected, efficient placement for this predicate.
-
-### AQE Enabled
-Severity: **Low**
-Operator: **AdaptiveSparkPlan**
-
-Adaptive Query Execution is enabled, allowing Spark to adjust shuffle partitions, join strategies, and skew handling at runtime based on observed data statistics.
-
 ## Execution Overview
 
-Operators: 7
-Edges: 6
-Root Nodes: 1
-Leaf Nodes: 1
-Findings: 12
+Operators: 32
+Edges: 0
+Root Nodes: 32
+Leaf Nodes: 32
+Findings: 26
 
 ## Execution Statistics
 
-Stages: 2
-Joins: 0
-Broadcast Joins: 0
-Shuffles: 1
-Exchanges: 1
-Aggregations: 2
-Sorts: 0
-Filters: 1
-Scans: 0
-Max Depth: 7
-Complexity: MEDIUM (16.75)
+Stages: 5
+Joins: 4
+Broadcast Joins: 3
+Shuffles: 4
+Exchanges: 6
+Aggregations: 4
+Sorts: 2
+Filters: 4
+Scans: 6
+Max Depth: 1
+Complexity: VERY_HIGH (63.0)
 
 ## AI Explanation
 
