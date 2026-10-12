@@ -195,7 +195,7 @@ class ExecutionQualityRule(Rule):
             # Required shuffle for shuffle-based joins
             # ----------------------------------------------------------
 
-            if self._feeds_shuffle_join(parent_ops):
+            if self._feeds_shuffle_join(dag, operator):
 
                 findings.append(
                     AnalysisFinding(
@@ -283,15 +283,50 @@ class ExecutionQualityRule(Rule):
 
         return False
 
-    @staticmethod
     def _feeds_shuffle_join(
-        parent_ops: list[PhysicalOperator],
+        self,
+        dag: ExecutionDAG,
+        exchange: PhysicalOperator,
     ) -> bool:
+        """
+        True when the Exchange ultimately feeds a shuffle-based join.
+        SortMergeJoin does not consume the Exchange directly: its inputs are
+        Sort operators sitting on top of the Exchange (and, in AQE plans,
+        shuffle-read wrappers), so walk up through those.
+        """
 
-        return any(
-            parent.operator_type
-            in ExecutionQualityRule._SHUFFLE_JOIN_TYPES
-            for parent in parent_ops
+        visited: set[int] = set()
+        frontier = list(dag.parents(exchange.operator_id))
+
+        while frontier:
+
+            current = frontier.pop()
+
+            if current.operator_id in visited:
+                continue
+
+            visited.add(current.operator_id)
+
+            if current.operator_type in self._SHUFFLE_JOIN_TYPES:
+                return True
+
+            if self._is_pass_through(current):
+                frontier.extend(
+                    dag.parents(current.operator_id)
+                )
+
+        return False
+
+    @staticmethod
+    def _is_pass_through(operator: PhysicalOperator) -> bool:
+
+        if operator.operator_type == OperatorType.SORT:
+            return True
+
+        name = operator.name.lower()
+
+        return operator.operator_type == OperatorType.UNKNOWN and (
+            "shuffleread" in name or "shufflequerystage" in name
         )
 
     def _detect_two_phase_aggregation(
