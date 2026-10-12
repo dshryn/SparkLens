@@ -9,13 +9,12 @@ if str(ROOT) not in sys.path:
 
 st.set_page_config(
     page_title="SparkLens",
-    page_icon="⚡",
     layout="wide",
     initial_sidebar_state="expanded",
 )
 
 pages = [
-    st.Page("home.py", title="SparkLens", url_path="", default=True),
+    st.Page("home.py", title="Home", url_path="", default=True),
     st.Page("pages/1_Analyzer.py", title="Analyzer", url_path="Analyzer"),
     st.Page("pages/2_Reports.py", title="Reports", url_path="Reports"),
     st.Page("pages/3_DAG.py", title="DAG", url_path="DAG"),
