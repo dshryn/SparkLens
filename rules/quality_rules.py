@@ -464,10 +464,7 @@ class ExecutionQualityRule(Rule):
                     title="Early Filter / Filter Pushdown",
                     description=(
                         "The filter is applied immediately after the scan "
-                        "or source, before any shuffle or join. This "
-                        "reduces the volume of data carried through the "
-                        "rest of the plan and is the expected, efficient "
-                        "placement for this predicate."
+                        "or source, before any shuffle or join."
                     ),
                     severity=Severity.LOW,
                     operator_id=operator.operator_id,
