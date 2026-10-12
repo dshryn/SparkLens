@@ -61,6 +61,21 @@ class BroadcastJoinRule(Rule):
 
         for operator in dag.operators.values():
 
+            if operator.name == "CartesianProduct":
+                findings.append(
+                    AnalysisFinding(
+                        rule=self.__class__.__name__,
+                        title="Cartesian Product Detected",
+                        description=(
+                            "A cartesian product should be avoided unless "
+                            "the cross join is truly intended."
+                        ),
+                        severity=Severity.MEDIUM,
+                        operator_id=operator.operator_id,
+                    )
+                )
+                continue
+
             config = self._JOIN_CONFIG.get(
                 operator.operator_type
             )
@@ -111,6 +126,13 @@ class BroadcastJoinRule(Rule):
 
             description = config["description"]
             keys = self._join_keys(operator)
+
+            join_type = operator.metadata.get("Join type", "")
+            if (
+                operator.operator_type == OperatorType.SORT_MERGE_JOIN
+                and "fullouter" in join_type.lower().replace(" ", "")
+            ):
+                description += " A full outer join cannot be broadcast."
 
             if keys and config["strategy"] in (
                 "SortMergeJoin",
