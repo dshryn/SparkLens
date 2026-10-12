@@ -5,6 +5,7 @@ from models.enums import OperatorType, Severity
 from models.execution_dag import ExecutionDAG
 
 from .base import Rule
+from .shuffle_utils import clean_keys, format_keys
 
 
 class BroadcastJoinRule(Rule):
@@ -59,6 +60,21 @@ class BroadcastJoinRule(Rule):
 
         for operator in dag.operators.values():
 
+            if operator.name == "CartesianProduct":
+                findings.append(
+                    AnalysisFinding(
+                        rule=self.__class__.__name__,
+                        title="Cartesian Product Detected",
+                        description=(
+                            "A cartesian product should be avoided unless "
+                            "the cross join is truly intended."
+                        ),
+                        severity=Severity.MEDIUM,
+                        operator_id=operator.operator_id,
+                    )
+                )
+                continue
+
             config = self._JOIN_CONFIG.get(
                 operator.operator_type
             )
@@ -107,11 +123,37 @@ class BroadcastJoinRule(Rule):
                     operator.arguments
                 )
 
+            description = config["description"]
+            keys = self._join_keys(operator)
+
+            join_type = self._metadata_value(operator, "Join type") or ""
+            if (
+                operator.operator_type == OperatorType.SORT_MERGE_JOIN
+                and "fullouter" in join_type.lower().replace(" ", "")
+            ):
+                description += " A full outer join cannot be broadcast."
+
+            if keys and config["strategy"] in (
+                "SortMergeJoin",
+                "ShuffleHashJoin",
+            ) and self._both_sides_have_exchange(dag, operator):
+                if config["strategy"] == "SortMergeJoin":
+                    description += (
+                        " Both inputs are hash-partitioned and sorted on "
+                        f"{format_keys(keys)}, and these shuffles are required "
+                        "by the join."
+                    )
+                else:
+                    description += (
+                        " Both sides are hash-partitioned on "
+                        f"{format_keys(keys)} and joined without a sort step."
+                    )
+
             findings.append(
                 AnalysisFinding(
                     rule=self.__class__.__name__,
                     title=config["title"],
-                    description=config["description"],
+                    description=description,
                     severity=config["severity"],
                     operator_id=operator.operator_id,
                     metadata=metadata,
@@ -131,7 +173,76 @@ class BroadcastJoinRule(Rule):
         Copies parser metadata into analysis metadata if available.
         """
 
-        value = operator.metadata.get(source_key)
+        value = BroadcastJoinRule._metadata_value(
+            operator,
+            source_key,
+        )
 
         if value:
             metadata[target_key] = value
+
+    @staticmethod
+    def _metadata_value(operator, source_key: str) -> str | None:
+        return next(
+            (
+                value
+                for key, value in operator.metadata.items()
+                if key.startswith(source_key)
+            ),
+            None,
+        )
+
+    @staticmethod
+    def _join_keys(operator) -> list[str]:
+        raw_keys = BroadcastJoinRule._metadata_value(
+            operator,
+            "Left keys",
+        )
+        return clean_keys(str(raw_keys)) if raw_keys else []
+
+    @classmethod
+    def _both_sides_have_exchange(
+        cls,
+        dag: ExecutionDAG,
+        join,
+    ) -> bool:
+        children = dag.children(join.operator_id)
+
+        return len(children) >= 2 and all(
+            cls._has_exchange_below(dag, child.operator_id)
+            for child in children[:2]
+        )
+
+    @classmethod
+    def _has_exchange_below(
+        cls,
+        dag: ExecutionDAG,
+        operator_id: int,
+    ) -> bool:
+        visited: set[int] = set()
+        frontier = list(dag.children(operator_id))
+
+        while frontier:
+            current = frontier.pop()
+
+            if current.operator_id in visited:
+                continue
+
+            visited.add(current.operator_id)
+
+            if current.operator_type == OperatorType.EXCHANGE:
+                return True
+
+            name = current.name.lower()
+            if current.operator_type == OperatorType.SORT or (
+                current.operator_type == OperatorType.UNKNOWN
+                and (
+                    "shuffleread" in name
+                    or "shufflequerystage" in name
+                )
+            ):
+                frontier.extend(
+                    dag.children(current.operator_id)
+                )
+
+        return False

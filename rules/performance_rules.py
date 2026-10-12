@@ -131,7 +131,7 @@ class PerformanceRule(Rule):
         # Multi-stage aggregation
         # --------------------------------------------------------------
 
-        if aggregation_count > 1:
+        if aggregation_count == 2:
 
             findings.append(
                 AnalysisFinding(

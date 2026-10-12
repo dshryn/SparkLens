@@ -17,6 +17,7 @@ htmlcov/
 
 # Virtual env
 .venv/
+.venv-*/
 venv/
 
 # IDE
@@ -41,3 +42,4 @@ dag.png
 !evaluation/dataset_predicted.csv
 !evaluation/eval_validation.csv
 evaluation/eval_plans/
+evaluation/review_snapshots/

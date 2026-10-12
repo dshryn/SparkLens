@@ -18,11 +18,13 @@ from rules.aggregation_rules import AggregationRule
 from rules.engine import RuleEngine
 from rules.exchange_rules import ExchangeRule
 from rules.join_rules import BroadcastJoinRule
+from rules.limit_rules import LimitRule
 from rules.partition_rules import PartitionRule
 from rules.performance_rules import PerformanceRule
 from rules.pipeline_rules import PipelineRule
 from rules.quality_rules import ExecutionQualityRule
 from rules.shuffle_rules import ShuffleRule
+from rules.shuffle_utils import is_shuffle_boundary
 from rules.sort_rules import SortRule
 from rules.stage_rules import StageRule
 
@@ -206,7 +208,8 @@ class SparkAnalyzer:
                 case OperatorType.EXCHANGE:
                     stats.exchange_count += 1
                     stats.shuffle_count += 1
-                    shuffle_boundary_count += 1
+                    if is_shuffle_boundary(operator):
+                        shuffle_boundary_count += 1
 
                 case OperatorType.BROADCAST_EXCHANGE:
                     stats.exchange_count += 1
@@ -328,6 +331,7 @@ class SparkAnalyzer:
         return RuleEngine(
             [
                 BroadcastJoinRule(),
+                LimitRule(),
                 ShuffleRule(),
                 ExchangeRule(),
                 PartitionRule(),

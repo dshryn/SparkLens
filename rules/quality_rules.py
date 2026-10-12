@@ -6,6 +6,11 @@ from models.execution_dag import ExecutionDAG
 from models.physical_operator import PhysicalOperator
 
 from .base import Rule
+from .shuffle_utils import (
+    format_keys,
+    partitioning_keys,
+    shuffle_partition_count,
+)
 
 
 class ExecutionQualityRule(Rule):
@@ -162,18 +167,34 @@ class ExecutionQualityRule(Rule):
                 )
             ):
 
+                description = (
+                    "Spark inserts this shuffle to redistribute "
+                    "partially aggregated data so the final "
+                    "aggregation can combine results across "
+                    "partitions. This exchange is required by the "
+                    "two-phase aggregation strategy and is not an "
+                    "optimization target."
+                )
+
+                if "hashpartitioning" in " ".join(
+                    operator.arguments
+                ).lower():
+                    keys = format_keys(partitioning_keys(operator))
+                    suffix = (
+                        f" on {keys}"
+                        if keys
+                        else ""
+                    )
+                    description += (
+                        f" The hash-partitioned exchange{suffix} is "
+                        "required by the aggregation."
+                    )
+
                 findings.append(
                     AnalysisFinding(
                         rule=self.__class__.__name__,
                         title="Required Shuffle (Aggregation)",
-                        description=(
-                            "Spark inserts this shuffle to redistribute "
-                            "partially aggregated data so the final "
-                            "aggregation can combine results across "
-                            "partitions. This exchange is required by the "
-                            "two-phase aggregation strategy and is not an "
-                            "optimization target."
-                        ),
+                        description=description,
                         severity=Severity.LOW,
                         operator_id=operator.operator_id,
                         metadata={
@@ -195,7 +216,7 @@ class ExecutionQualityRule(Rule):
             # Required shuffle for shuffle-based joins
             # ----------------------------------------------------------
 
-            if self._feeds_shuffle_join(parent_ops):
+            if self._feeds_shuffle_join(dag, operator):
 
                 findings.append(
                     AnalysisFinding(
@@ -283,15 +304,50 @@ class ExecutionQualityRule(Rule):
 
         return False
 
-    @staticmethod
     def _feeds_shuffle_join(
-        parent_ops: list[PhysicalOperator],
+        self,
+        dag: ExecutionDAG,
+        exchange: PhysicalOperator,
     ) -> bool:
+        """
+        True when the Exchange ultimately feeds a shuffle-based join.
+        SortMergeJoin does not consume the Exchange directly: its inputs are
+        Sort operators sitting on top of the Exchange (and, in AQE plans,
+        shuffle-read wrappers), so walk up through those.
+        """
 
-        return any(
-            parent.operator_type
-            in ExecutionQualityRule._SHUFFLE_JOIN_TYPES
-            for parent in parent_ops
+        visited: set[int] = set()
+        frontier = list(dag.parents(exchange.operator_id))
+
+        while frontier:
+
+            current = frontier.pop()
+
+            if current.operator_id in visited:
+                continue
+
+            visited.add(current.operator_id)
+
+            if current.operator_type in self._SHUFFLE_JOIN_TYPES:
+                return True
+
+            if self._is_pass_through(current):
+                frontier.extend(
+                    dag.parents(current.operator_id)
+                )
+
+        return False
+
+    @staticmethod
+    def _is_pass_through(operator: PhysicalOperator) -> bool:
+
+        if operator.operator_type == OperatorType.SORT:
+            return True
+
+        name = operator.name.lower()
+
+        return operator.operator_type == OperatorType.UNKNOWN and (
+            "shuffleread" in name or "shufflequerystage" in name
         )
 
     def _detect_two_phase_aggregation(
@@ -343,17 +399,33 @@ class ExecutionQualityRule(Rule):
             if not partial_ops or not final_ops:
                 continue
 
+            description = (
+                "Spark performs a partial (map-side) aggregation "
+                "followed by a final aggregation across the "
+                "shuffle boundary. This reduces the volume of data "
+                "shuffled and is the expected, efficient strategy "
+                "for this aggregation."
+            )
+
+            if "hashpartitioning" in " ".join(
+                exchange.arguments
+            ).lower():
+                keys = format_keys(partitioning_keys(exchange))
+                suffix = (
+                    f" on {keys}"
+                    if keys
+                    else ""
+                )
+                description += (
+                    f" Partial and final aggregation run around the "
+                    f"hash-partitioned exchange{suffix}."
+                )
+
             findings.append(
                 AnalysisFinding(
                     rule=self.__class__.__name__,
                     title="Two-Phase Aggregation",
-                    description=(
-                        "Spark performs a partial (map-side) aggregation "
-                        "followed by a final aggregation across the "
-                        "shuffle boundary. This reduces the volume of data "
-                        "shuffled and is the expected, efficient strategy "
-                        "for this aggregation."
-                    ),
+                    description=description,
                     severity=Severity.LOW,
                     operator_id=partial_ops[0].operator_id,
                     metadata={
@@ -413,22 +485,6 @@ class ExecutionQualityRule(Rule):
         parents: dict[int, list[int]],
     ) -> list[AnalysisFinding]:
 
-        # FILE_SCAN is the normal table/file source.
-        source_types = {
-            OperatorType.FILE_SCAN
-        }
-
-        # RANGE is not currently present in OperatorType in the retrieved
-        # repository, but preserve compatibility if it is added later.
-        range_type = getattr(
-            OperatorType,
-            "RANGE",
-            None,
-        )
-
-        if range_type is not None:
-            source_types.add(range_type)
-
         findings: list[AnalysisFinding] = []
 
         for operator in dag.operators.values():
@@ -440,22 +496,12 @@ class ExecutionQualityRule(Rule):
                 operator.operator_id
             )
 
-            has_source_child = any(
-                child.operator_type in source_types
+            has_file_scan_child = any(
+                child.operator_type == OperatorType.FILE_SCAN
                 for child in children
             )
 
-            # Parser currently classifies Range as UNKNOWN. When that is the
-            # case, identify it structurally by the source operator name.
-            has_range_source = any(
-                child.name.lower().startswith("range")
-                for child in children
-            )
-
-            if not (
-                has_source_child
-                or has_range_source
-            ):
+            if not has_file_scan_child:
                 continue
 
             findings.append(
@@ -464,10 +510,7 @@ class ExecutionQualityRule(Rule):
                     title="Early Filter / Filter Pushdown",
                     description=(
                         "The filter is applied immediately after the scan "
-                        "or source, before any shuffle or join. This "
-                        "reduces the volume of data carried through the "
-                        "rest of the plan and is the expected, efficient "
-                        "placement for this predicate."
+                        "or source, before any shuffle or join."
                     ),
                     severity=Severity.LOW,
                     operator_id=operator.operator_id,
@@ -486,11 +529,14 @@ class ExecutionQualityRule(Rule):
     ) -> list[AnalysisFinding]:
 
         findings: list[AnalysisFinding] = []
+        has_aqe = False
 
         for operator in dag.operators.values():
 
             if operator.name != "AdaptiveSparkPlan":
                 continue
+
+            has_aqe = True
 
             findings.append(
                 AnalysisFinding(
@@ -507,6 +553,62 @@ class ExecutionQualityRule(Rule):
                     metadata={
                         "positive": True,
                         "category": "aqe_enabled",
+                    },
+                )
+            )
+
+        if has_aqe:
+            return findings
+
+        exchanges = [
+            operator
+            for operator in dag.operators.values()
+            if operator.operator_type in (
+                OperatorType.EXCHANGE,
+                OperatorType.BROADCAST_EXCHANGE,
+            )
+        ]
+
+        if not exchanges:
+            return findings
+
+        findings.append(
+            AnalysisFinding(
+                rule=self.__class__.__name__,
+                title="AQE Disabled",
+                description=(
+                    "Adaptive Query Execution is turned off for this plan."
+                ),
+                severity=Severity.LOW,
+                metadata={
+                    "positive": False,
+                    "category": "aqe_disabled",
+                },
+            )
+        )
+
+        counts = {
+            shuffle_partition_count(operator)
+            for operator in exchanges
+            if operator.operator_type == OperatorType.EXCHANGE
+        } - {None}
+
+        if len(counts) == 1:
+
+            partitions = next(iter(counts))
+
+            findings.append(
+                AnalysisFinding(
+                    rule=self.__class__.__name__,
+                    title="Static Shuffle Partitions",
+                    description=(
+                        f"The shuffle keeps a static {partitions} partitions."
+                    ),
+                    severity=Severity.LOW,
+                    metadata={
+                        "positive": False,
+                        "category": "static_shuffle_partitions",
+                        "partitions": partitions,
                     },
                 )
             )

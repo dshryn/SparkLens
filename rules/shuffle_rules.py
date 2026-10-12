@@ -38,13 +38,7 @@ class ShuffleRule(Rule):
                 AnalysisFinding(
                     rule=self.__class__.__name__,
                     title="Shuffle Detected",
-                    description=(
-                        "A shuffle exchange redistributes data across "
-                        "partitions. Whether this shuffle is required, "
-                        "expected, or an optimization opportunity is "
-                        "determined by ExecutionQualityRule's evidence for "
-                        "this operator."
-                    ),
+                    description="A shuffle exchange redistributes data across partitions.",
                     severity=Severity.MEDIUM,
                     operator_id=operator.operator_id,
                 )

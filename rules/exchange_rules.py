@@ -53,12 +53,7 @@ class ExchangeRule(Rule):
                     AnalysisFinding(
                         rule=self.__class__.__name__,
                         title="Shuffle Write",
-                        description=(
-                            "Spark writes shuffle data for downstream "
-                            "stages. Whether this exchange is required is "
-                            "determined by ExecutionQualityRule's evidence "
-                            "for this operator."
-                        ),
+                            description="Spark writes shuffle data for downstream stages.",
                         severity=Severity.MEDIUM,
                         operator_id=operator.operator_id,
                     )
@@ -70,13 +65,7 @@ class ExchangeRule(Rule):
                     AnalysisFinding(
                         rule=self.__class__.__name__,
                         title="Shuffle Read",
-                        description=(
-                            "Spark reads data produced by a previous "
-                            "shuffle stage. Whether this exchange is "
-                            "required is determined by "
-                            "ExecutionQualityRule's evidence for this "
-                            "operator."
-                        ),
+                            description="Spark reads data produced by a previous shuffle stage.",
                         severity=Severity.MEDIUM,
                         operator_id=operator.operator_id,
                     )
@@ -88,12 +77,7 @@ class ExchangeRule(Rule):
                     AnalysisFinding(
                         rule=self.__class__.__name__,
                         title="Exchange Operator",
-                        description=(
-                            "Spark exchanges data between execution "
-                            "stages. Whether this exchange is required is "
-                            "determined by ExecutionQualityRule's evidence "
-                            "for this operator."
-                        ),
+                            description="Spark exchanges data between execution stages.",
                         severity=Severity.MEDIUM,
                         operator_id=operator.operator_id,
                     )
