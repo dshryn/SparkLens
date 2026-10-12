@@ -1,219 +1,179 @@
+<div align="center">
+
 # SparkLens
 
-## Deterministic Spark Execution Plan Analyzer with AI-Assisted Explanations
+### Deterministic Spark Execution Plan Analyzer with AI-Assisted Explanations
 
-SparkLens is a tool for analyzing Apache Spark Physical Execution Plans.
+**Understand Spark execution. Identify bottlenecks. Make better optimization decisions.**
 
-It transforms raw Spark execution plans into:
+<br>
 
-* Structured execution DAGs
-* Deterministic performance findings
-* Visual execution graphs
-* Markdown and HTML reports
-* AI-generated explanations powered by Gemini
+[![Version](https://img.shields.io/badge/version-0.1.1-6366f1?style=flat-square)](#version)
+[![Python](https://img.shields.io/badge/Python-3.12%2B-3776AB?style=flat-square&logo=python&logoColor=white)](#installation)
+[![Google Gemini](https://img.shields.io/badge/AI-Google_Gemini-8E75B2?style=flat-square&logo=googlegemini&logoColor=white)](#ai-setup)
 
-SparkLens is designed around a simple principle:
-
-> AI should explain analysis, not replace analysis.
-
-Unlike tools that send raw execution plans directly to an LLM, SparkLens first performs deterministic rule-based analysis and then uses AI to explain the findings.
+</div>
 
 ---
 
-# Why SparkLens?
+## Overview
 
-Spark execution plans are powerful but difficult to interpret.
+SparkLens is a tool for analyzing **Apache Spark Physical Execution Plans**.
 
-Even moderately complex plans may contain:
+It transforms raw execution plans into structured execution DAGs, deterministic performance findings, visual execution graphs, and comprehensive reports with optional AI-generated explanations.
 
-* Broadcast joins
-* Shuffle exchanges
-* Multi-stage aggregations
-* Sorting operations
-* Adaptive Query Execution (AQE)
-* Partitioning strategies
-* Stage boundaries
+| Capability | Description |
+|:---|:---|
+| Plan Parsing | Converts physical execution plans into structured operator representations |
+| DAG Construction | Represents execution flow as a directed acyclic graph |
+| Performance Analysis | Identifies execution characteristics and potential bottlenecks |
+| Visualization | Generates execution DAGs as PNG images |
+| Reporting | Produces Markdown and HTML reports |
+| AI Explanations | Generates natural-language insights using Google Gemini |
 
-Understanding:
+> **The core principle: AI should explain analysis, not replace analysis.**
 
-* Why a query is slow
-* Where data is shuffled
-* Which join strategy Spark selected
-* Where parallelism is lost
-* How execution stages are formed
-
-often requires significant Spark expertise.
-
-SparkLens automates this process and presents the results in a structured, explainable format.
+Unlike approaches that send raw execution plans directly to an LLM, SparkLens performs deterministic, rule-based analysis before using AI to explain the findings.
 
 ---
 
-# Core Features
+## Why SparkLens?
 
-## Execution Plan Parsing
+Spark execution plans are powerful, but interpreting them isn't always straightforward.
 
-Parse Spark Physical Execution Plans into structured operator representations.
+Even moderately complex plans can contain:
 
----
+- Broadcast joins
+- Shuffle exchanges
+- Multi-stage aggregations
+- Sorting operations
+- Adaptive Query Execution (AQE)
+- Partitioning strategies
+- Stage boundaries
 
-## Execution DAG Construction
+Understanding these plans often requires significant Spark expertise, especially when investigating:
 
-Convert execution plans into a directed acyclic graph representing execution flow.
+- Why a query is slow
+- Where data is shuffled
+- Which join strategy Spark selected
+- Where parallelism is lost
+- How execution stages are formed
 
----
-
-## Deterministic Rule Engine
-
-Detects Spark performance patterns and execution characteristics including:
-
-* Broadcast Hash Joins
-* Shuffle Operations
-* Stage Boundaries
-* Single Partition Bottlenecks
-* Aggregation Pipelines
-* Sorting Operations
-* AQE Usage
-* Partitioning Strategies
-* Performance Anti-Patterns
+SparkLens automates much of this interpretation, presenting execution characteristics and potential performance issues in a structured, explainable format.
 
 ---
 
-## AI-Assisted Explanations
+## Core Features
 
-Generate:
+### Execution Plan Parsing
 
-* Executive Summaries
-* Execution Walkthroughs
-* Performance Impact Analysis
-* Optimization Recommendations
+Parses Spark Physical Execution Plans into structured operator representations for further analysis.
 
-using Google Gemini.
+### Execution DAG Construction
+
+Converts execution plans into a directed acyclic graph (DAG) representing execution flow.
+
+### Deterministic Rule Engine
+
+Identifies Spark performance patterns and execution characteristics, including:
+
+- Broadcast Hash Joins
+- Shuffle Operations
+- Stage Boundaries
+- Single Partition Bottlenecks
+- Aggregation Pipelines
+- Sorting Operations
+- AQE Usage
+- Partitioning Strategies
+- Performance Anti-Patterns
+
+### AI-Assisted Explanations
+
+Uses Google Gemini to generate:
+
+- Executive Summaries
+- Execution Walkthroughs
+- Performance Impact Analysis
+- Optimization Recommendations
 
 The AI layer receives structured findings generated by SparkLens and is instructed to explain those findings rather than independently analyze the plan.
 
----
+### Visualization
 
-## Visualization
+Generates execution DAG visualizations as PNG images.
 
-Generate execution DAG visualizations as PNG images.
+Visualizations highlight operators associated with analysis findings, making it easier to connect potential performance issues with the execution graph.
 
-Visualization highlights operators associated with analysis findings.
+### Reporting
 
----
+Generates reports in two formats:
 
-## Reporting
+- Markdown (`report.md`)
+- HTML (`report.html`)
 
-Generate:
-
-* Markdown Reports
-* HTML Reports
-
-containing both deterministic analysis and AI-generated explanations.
+Reports contain deterministic analysis and, when AI-assisted analysis is enabled, AI-generated explanations.
 
 ---
 
-# Analysis Philosophy
+## Analysis Philosophy
 
-SparkLens follows a deterministic-first architecture.
+### Deterministic First. AI Second.
 
-Instead of sending a raw execution plan directly to an LLM:
+Sending an entire execution plan to an LLM and asking it to identify performance issues makes the analysis dependent on the model's interpretation.
 
-```text
-Spark Plan
-    ↓
-LLM
-    ↓
-Explanation
-```
+SparkLens separates the two responsibilities.
 
-SparkLens performs structured analysis first:
+**Traditional approach**
 
-```text
-Spark Plan
-    ↓
-Parser
-    ↓
-Execution DAG
-    ↓
-Rule Engine
-    ↓
-Analysis Report
-    ↓
-Recommendation Engine
-    ↓
-AI Explanation
-```
+`Spark Plan → LLM → Explanation`
 
-Benefits:
+**SparkLens approach**
 
-* Reduced hallucinations
-* Consistent findings
-* Explainable analysis
-* Reproducible results
-* Better separation between analysis and explanation
+1. Parse the Spark Physical Execution Plan.
+2. Construct the execution DAG.
+3. Apply deterministic analysis rules.
+4. Generate structured analysis findings.
+5. Generate recommendations.
+6. Use AI to explain the findings.
+
+This approach provides:
+
+- **Reduced hallucinations** — AI explanations are grounded in structured findings.
+- **Consistent findings** — Analysis is driven by deterministic rules.
+- **Explainability** — Findings originate from identifiable analysis rules.
+- **Reproducibility** — Deterministic analysis does not depend on AI-generated interpretations.
+- **Separation of concerns** — Analysis and explanation remain distinct stages.
 
 ---
 
-# Architecture
+## Architecture
 
-```text
-Spark Physical Plan
-          │
-          ▼
-   Plan Normalizer
-          │
-          ▼
-      Plan Parser
-          │
-          ▼
-      DAG Builder
-          │
-          ▼
-    Execution DAG
-          │
-          ▼
-      Rule Engine
-          │
-          ▼
-   Analysis Report
-          │
-          ▼
- Recommendation Engine
-          │
-          ▼
-     Prompt Builder
-          │
-          ▼
-      Gemini AI
-          │
-          ▼
-    AI Explanation
+SparkLens separates plan processing, deterministic analysis, AI-assisted explanations, and report generation into distinct components.
 
+| Component | Responsibility |
+|:---|:---|
+| Plan Normalizer | Prepares the Spark Physical Plan for parsing |
+| Plan Parser | Extracts structured operator representations |
+| DAG Builder | Constructs the execution DAG |
+| Rule Engine | Identifies execution characteristics and potential performance issues |
+| Analysis Report | Organizes the results of deterministic analysis |
+| Recommendation Engine | Generates recommendations based on analysis findings |
+| Prompt Builder | Prepares structured information for AI-assisted explanations |
+| Gemini AI | Generates natural-language explanations |
+| Visualization | Generates the execution DAG as `dag.png` |
+| Report Generator | Produces `report.md` and `report.html` |
 
-Execution DAG
-      │
-      ▼
- Visualization
-      │
-      ▼
-    dag.png
-
-
-Analysis Report
-      │
-      ▼
- Report Generator
-      │
-      ▼
-report.md
-report.html
-```
+The execution DAG is processed by the visualization component, while the analysis results are passed to the report generator. When AI is enabled, the explanation is incorporated into the generated reports.
 
 ---
 
-# Installation
+## Installation
 
-SparkLens requires Python 3.12 or newer.
+### Requirements
+
+- Python 3.12 or newer
+
+### Install from PyPI
 
 ```bash
 pip install sparklens
@@ -221,43 +181,57 @@ pip install sparklens
 
 ---
 
-# Input Format
+## Input Format
 
-SparkLens reads Spark physical plans in **formatted** explain mode, where every operator is numbered and described in its own block:
+SparkLens reads Spark physical plans generated using **formatted explain mode**, where every operator is numbered and described in its own block.
+
+**PySpark**
 
 ```python
-df.explain("formatted")    # PySpark
+df.explain("formatted")
 ```
+
+**Spark SQL / Databricks**
 
 ```sql
-EXPLAIN FORMATTED SELECT ...   -- Spark SQL / Databricks
+EXPLAIN FORMATTED SELECT ...
 ```
 
-Copy the printed plan into a text file (for example `plan.txt`) and pass that file to SparkLens. Plans printed by plain `df.explain()` or `df.explain(True)` are not supported yet.
+### Preparing the Input
+
+1. Generate the physical execution plan using formatted explain mode.
+2. Copy the printed plan into a text file, such as `plan.txt`.
+3. Pass the file to SparkLens.
+
+> **Note:** Plans printed by plain `df.explain()` or `df.explain(True)` are not supported yet.
 
 ---
 
-# AI Setup
+## AI Setup
 
-Set the `GEMINI_API_KEY` environment variable, or create a `.env` file in the folder where you run SparkLens:
+SparkLens uses Google Gemini for natural-language explanations.
+
+Set the `GEMINI_API_KEY` environment variable or create a `.env` file in the directory where you run SparkLens.
 
 ```env
 GEMINI_API_KEY=your_api_key_here
 ```
 
-SparkLens uses Google Gemini for natural-language explanations. The key is only needed for `--ai`; deterministic analysis runs fully offline.
+**Note:** The API key is required only when using the `--ai` flag. Deterministic analysis runs fully offline.
 
 ---
 
-# Usage
+## Usage
 
-## Deterministic Analysis
+### Deterministic Analysis
+
+Analyze a Spark physical execution plan without AI-generated explanations.
 
 ```bash
 sparklens analyze plan.txt
 ```
 
-Outputs:
+**Generated files**
 
 ```text
 dag.png
@@ -265,15 +239,15 @@ report.md
 report.html
 ```
 
----
+### AI-Enhanced Analysis
 
-## AI-Enhanced Analysis
+Enable AI-assisted explanations and recommendations.
 
 ```bash
 sparklens analyze plan.txt --ai
 ```
 
-Outputs:
+**Generated files**
 
 ```text
 dag.png
@@ -281,15 +255,19 @@ report.md
 report.html
 ```
 
-with AI-generated:
+The reports additionally include AI-generated:
 
-* Executive Summary
-* Execution Explanation
-* Recommendations
+- Executive Summary
+- Execution Explanation
+- Recommendations
 
 ---
 
-# Example Findings
+## Example Findings
+
+SparkLens generates structured findings that identify execution characteristics and their potential impact.
+
+**Single Partition Bottleneck**
 
 ```text
 Single Partition Bottleneck
@@ -302,17 +280,15 @@ single partition.
 
 ---
 
-# Example AI Summary
+## Example AI Summary
 
-```text
-The execution plan uses a Broadcast Hash Join and Adaptive
-Query Execution but contains a critical Single Partition
-bottleneck that limits parallelism and may impact scalability.
-```
+An example of an AI-generated explanation based on the analysis findings:
+
+> The execution plan uses a Broadcast Hash Join and Adaptive Query Execution but contains a critical Single Partition bottleneck that limits parallelism and may impact scalability.
 
 ---
 
-# Project Structure
+## Project Structure
 
 ```text
 SparkLens/
@@ -334,7 +310,7 @@ SparkLens/
 
 ---
 
-# Running Tests
+## Running Tests
 
 From a source checkout:
 
@@ -345,59 +321,61 @@ pytest
 
 ---
 
-# Current Capabilities (v0.1.1)
+## Current Capabilities
 
-* Spark Physical Plan Parsing
-* Execution DAG Construction
-* Rule-Based Analysis
-* Recommendation Generation
-* AI-Assisted Explanations
-* DAG Visualization
-* Markdown Reports
-* HTML Reports
-* CLI Interface
-* Local Package Installation
+**Current release: `v0.1.1`**
 
----
-
-# Roadmap
-
-## v0.2
-
-* Databricks Integration
-* Rich HTML Dashboard
-* Embedded DAG Visualizations
-* Additional Rule Packs
-* Enhanced Recommendation Engine
-
-## v0.3
-
-* Runtime Metrics Analysis
-* Spark UI Integration
-* Query Plan Comparison
-* Execution Replay Visualizations
-* Cost-Based Optimization Insights
+- Spark Physical Plan Parsing
+- Execution DAG Construction
+- Rule-Based Analysis
+- Recommendation Generation
+- AI-Assisted Explanations
+- DAG Visualization
+- Markdown Reports
+- HTML Reports
+- CLI Interface
+- Local Package Installation
 
 ---
 
-# Version
+## Roadmap
 
-Current Release:
+### v0.2
 
-```text
-v0.1.1
-```
+- Databricks Integration
+- Rich HTML Dashboard
+- Embedded DAG Visualizations
+- Additional Rule Packs
+- Enhanced Recommendation Engine
+
+### v0.3
+
+- Runtime Metrics Analysis
+- Spark UI Integration
+- Query Plan Comparison
+- Execution Replay Visualizations
+- Cost-Based Optimization Insights
 
 ---
 
-# Authors
+## Version
 
-* Arya Mulay
-* Aryan Vinod Deshpande
-* Yashwant Sahoo
-
-Developed at Vellore Institute of Technology (VIT) under the guidance of Dr. Venketesh P.
+| Property | Value |
+|:---|:---|
+| Current Release | `v0.1.1` |
 
 ---
 
-Built to make Spark execution plans understandable, explainable, and actionable.
+## Authors
+
+- [Arya Mulay](https://github.com/aryasm13)
+- [Aryan Vinod Deshpande](https://github.com/dshryn)
+- [Yashwant Sahoo](https://github.com/Yashwant1105)
+
+---
+
+<div align="center">
+
+**Built to make Spark execution plans understandable, explainable, and actionable.**
+
+</div>
