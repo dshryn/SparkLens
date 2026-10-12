@@ -64,6 +64,22 @@ class PipelineRule(Rule):
                 )
             ]
 
+        if any(
+            any(
+                token in operator.name.lower()
+                for token in (
+                    "sort",
+                    "coalesce",
+                    "cartesian",
+                    "takeordered",
+                    "nestedloop",
+                    "window",
+                )
+            )
+            for operator in dag.operators.values()
+        ):
+            return []
+
         return [
             AnalysisFinding(
                 rule=self.__class__.__name__,
