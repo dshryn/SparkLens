@@ -27,3 +27,6 @@ include-package-data = true
 
 [tool.setuptools.packages.find]
 where = ["."]
+
+[tool.poetry]
+package-mode = false
