@@ -18,7 +18,6 @@ from rules.aggregation_rules import AggregationRule
 from rules.engine import RuleEngine
 from rules.exchange_rules import ExchangeRule
 from rules.join_rules import BroadcastJoinRule
-from rules.limit_rules import LimitRule
 from rules.partition_rules import PartitionRule
 from rules.performance_rules import PerformanceRule
 from rules.pipeline_rules import PipelineRule
@@ -331,7 +330,6 @@ class SparkAnalyzer:
         return RuleEngine(
             [
                 BroadcastJoinRule(),
-                LimitRule(),
                 ShuffleRule(),
                 ExchangeRule(),
                 PartitionRule(),
