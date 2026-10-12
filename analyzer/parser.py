@@ -10,9 +10,19 @@ from models.physical_operator import PhysicalOperator
 _OPERATOR_HEADER = re.compile(r"^\((?P<id>\d+)\)\s+(?P<name>[A-Za-z0-9_]+)")
 _PROPERTY_SUFFIX = re.compile(r"\s*\[\d+\]$")
 _TRAILING_ID = re.compile(r"\((\d+)\)\s*$")
+_STAGE_WRAPPERS = {
+    "adaptivesparkplan",
+    "resultstage",
+    "photonresultstage",
+    "shufflemapstage",
+    "photonshufflemapstage",
+    "broadcastquerystage",
+    "shufflequerystage",
+    "wholestagecodegen",
+}
 
 _CONNECTOR_UNIT_PATTERNS = [
-    re.compile(r"^:(\s*)"),
+    re.compile(r"^:(?:- | {1,2})"),
     re.compile(r"^\+-\s*"),
     re.compile(r"^├─\s*"),
     re.compile(r"^└─\s*"),
@@ -304,7 +314,19 @@ class PlanParser:
                 current = node_lines
             current.append(line)
 
-        operators = self._node_parser.parse(node_lines)
+        tokens = self._tree_parser.parse_tokens(tree_lines)
+        if tokens and not any(
+            isinstance(token, RealTreeToken)
+            for token in tokens
+        ):
+            # Tree carries no ids: the tree is the only reliable source of
+            # structure.
+            tokens = self._number_tree(tokens)
+            operators = self._operators_from_tokens(tokens)
+            edges = EdgeBuilder().build(tokens)
+        else:
+            operators = self._node_parser.parse(node_lines)
+            edges = self._tree_parser.parse(tree_lines)
 
         for op in operators.values():
             name = op.name
@@ -355,8 +377,6 @@ class PlanParser:
                 if op.transformation == TransformationType.NONE:
                     op.transformation = TransformationType.NARROW
 
-        edges = self._tree_parser.parse(tree_lines)
-
         for parent_id, child_id in edges:
             if parent_id not in operators or child_id not in operators:
                 raise ValueError(
@@ -366,3 +386,42 @@ class PlanParser:
                 )
 
         return ParsedPlan(operators=operators, edges=edges)
+
+    def _number_tree(self, tokens: list[TreeToken]) -> list[TreeToken]:
+        """Assign sequential ids to non-wrapper tokens in tree order."""
+
+        numbered: list[TreeToken] = []
+        next_id = 1
+
+        for token in tokens:
+            if token.name.lower() in _STAGE_WRAPPERS:
+                numbered.append(
+                    WrapperTreeToken(token.depth, token.name, token.raw_line)
+                )
+            else:
+                numbered.append(
+                    RealTreeToken(
+                        token.depth,
+                        token.name,
+                        next_id,
+                        token.raw_line,
+                    )
+                )
+                next_id += 1
+
+        return numbered
+
+    def _operators_from_tokens(
+        self,
+        tokens: list[TreeToken],
+    ) -> dict[int, PhysicalOperator]:
+        return {
+            token.node_id: PhysicalOperator(
+                operator_id=token.node_id,
+                name=token.name,
+                operator_type=OperatorType.UNKNOWN,
+                transformation=TransformationType.NONE,
+            )
+            for token in tokens
+            if isinstance(token, RealTreeToken)
+        }
