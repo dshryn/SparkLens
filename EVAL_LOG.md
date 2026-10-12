@@ -13,3 +13,4 @@ plans are compared with the immediately preceding kept commit.
 | 6 | f0040cd | 0.928 | 0.617 | 0.741 | 0.843 | 475 | 34 | 121 | none | kept |
 | 7 | 44153d4 | 0.926 | 0.649 | 0.763 | 0.853 | 488 | 36 | 111 | none | kept |
 | 8 | 40a3071 | 0.928 | 0.649 | 0.764 | 0.854 | 486 | 35 | 111 | none | kept |
+| 9 | 66980d0 | 0.944 | 0.639 | 0.762 | 0.862 | 478 | 27 | 114 | none | kept |

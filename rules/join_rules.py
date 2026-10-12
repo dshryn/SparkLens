@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import re
+
 from models.analysis_finding import AnalysisFinding
 from models.enums import OperatorType, Severity
 from models.execution_dag import ExecutionDAG
@@ -107,11 +109,29 @@ class BroadcastJoinRule(Rule):
                     operator.arguments
                 )
 
+            description = config["description"]
+            keys = self._join_keys(operator)
+
+            if keys and config["strategy"] in (
+                "SortMergeJoin",
+                "ShuffleHashJoin",
+            ) and self._both_sides_have_exchange(dag, operator):
+                if config["strategy"] == "SortMergeJoin":
+                    description += (
+                        " Both inputs are hash-partitioned and sorted on "
+                        f"{keys}, and these shuffles are required by the join."
+                    )
+                else:
+                    description += (
+                        " Both sides are hash-partitioned on "
+                        f"{keys} and joined without a sort step."
+                    )
+
             findings.append(
                 AnalysisFinding(
                     rule=self.__class__.__name__,
                     title=config["title"],
-                    description=config["description"],
+                    description=description,
                     severity=config["severity"],
                     operator_id=operator.operator_id,
                     metadata=metadata,
@@ -135,3 +155,69 @@ class BroadcastJoinRule(Rule):
 
         if value:
             metadata[target_key] = value
+
+    @staticmethod
+    def _join_keys(operator) -> str | None:
+        raw_keys = operator.metadata.get("Left keys") or operator.metadata.get(
+            "left_keys"
+        )
+
+        if not raw_keys:
+            return None
+
+        keys: list[str] = []
+
+        for raw_key in str(raw_keys).strip("[]").split(","):
+            key = re.sub(r"#\d+L?$", "", raw_key.strip()).strip("[] ")
+
+            if key and key not in keys:
+                keys.append(key)
+
+        return " and ".join(keys) or None
+
+    @classmethod
+    def _both_sides_have_exchange(
+        cls,
+        dag: ExecutionDAG,
+        join,
+    ) -> bool:
+        children = dag.children(join.operator_id)
+
+        return len(children) >= 2 and all(
+            cls._has_exchange_below(dag, child.operator_id)
+            for child in children[:2]
+        )
+
+    @classmethod
+    def _has_exchange_below(
+        cls,
+        dag: ExecutionDAG,
+        operator_id: int,
+    ) -> bool:
+        visited: set[int] = set()
+        frontier = list(dag.children(operator_id))
+
+        while frontier:
+            current = frontier.pop()
+
+            if current.operator_id in visited:
+                continue
+
+            visited.add(current.operator_id)
+
+            if current.operator_type == OperatorType.EXCHANGE:
+                return True
+
+            name = current.name.lower()
+            if current.operator_type == OperatorType.SORT or (
+                current.operator_type == OperatorType.UNKNOWN
+                and (
+                    "shuffleread" in name
+                    or "shufflequerystage" in name
+                )
+            ):
+                frontier.extend(
+                    dag.children(current.operator_id)
+                )
+
+        return False
