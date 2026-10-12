@@ -6,7 +6,11 @@ from models.execution_dag import ExecutionDAG
 from models.physical_operator import PhysicalOperator
 
 from .base import Rule
-from .shuffle_utils import shuffle_partition_count
+from .shuffle_utils import (
+    format_keys,
+    partitioning_keys,
+    shuffle_partition_count,
+)
 
 
 class ExecutionQualityRule(Rule):
@@ -163,18 +167,34 @@ class ExecutionQualityRule(Rule):
                 )
             ):
 
+                description = (
+                    "Spark inserts this shuffle to redistribute "
+                    "partially aggregated data so the final "
+                    "aggregation can combine results across "
+                    "partitions. This exchange is required by the "
+                    "two-phase aggregation strategy and is not an "
+                    "optimization target."
+                )
+
+                if "hashpartitioning" in " ".join(
+                    operator.arguments
+                ).lower():
+                    keys = format_keys(partitioning_keys(operator))
+                    suffix = (
+                        f" on {keys}"
+                        if keys
+                        else ""
+                    )
+                    description += (
+                        f" The hash-partitioned exchange{suffix} is "
+                        "required by the aggregation."
+                    )
+
                 findings.append(
                     AnalysisFinding(
                         rule=self.__class__.__name__,
                         title="Required Shuffle (Aggregation)",
-                        description=(
-                            "Spark inserts this shuffle to redistribute "
-                            "partially aggregated data so the final "
-                            "aggregation can combine results across "
-                            "partitions. This exchange is required by the "
-                            "two-phase aggregation strategy and is not an "
-                            "optimization target."
-                        ),
+                        description=description,
                         severity=Severity.LOW,
                         operator_id=operator.operator_id,
                         metadata={
@@ -379,17 +399,33 @@ class ExecutionQualityRule(Rule):
             if not partial_ops or not final_ops:
                 continue
 
+            description = (
+                "Spark performs a partial (map-side) aggregation "
+                "followed by a final aggregation across the "
+                "shuffle boundary. This reduces the volume of data "
+                "shuffled and is the expected, efficient strategy "
+                "for this aggregation."
+            )
+
+            if "hashpartitioning" in " ".join(
+                exchange.arguments
+            ).lower():
+                keys = format_keys(partitioning_keys(exchange))
+                suffix = (
+                    f" on {keys}"
+                    if keys
+                    else ""
+                )
+                description += (
+                    f" Partial and final aggregation run around the "
+                    f"hash-partitioned exchange{suffix}."
+                )
+
             findings.append(
                 AnalysisFinding(
                     rule=self.__class__.__name__,
                     title="Two-Phase Aggregation",
-                    description=(
-                        "Spark performs a partial (map-side) aggregation "
-                        "followed by a final aggregation across the "
-                        "shuffle boundary. This reduces the volume of data "
-                        "shuffled and is the expected, efficient strategy "
-                        "for this aggregation."
-                    ),
+                    description=description,
                     severity=Severity.LOW,
                     operator_id=partial_ops[0].operator_id,
                     metadata={
