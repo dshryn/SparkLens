@@ -1,5 +1,7 @@
 """Renders visualization graphs."""
 
+import math
+
 import matplotlib.pyplot as plt
 import networkx as nx
 
@@ -37,16 +39,7 @@ class GraphRenderer(BaseRenderer):
                 edge.target,
             )
 
-        try:
-            pos = graphviz_layout(
-                dag,
-                prog="dot",
-            )
-        except Exception:
-            pos = nx.spring_layout(
-                dag,
-                seed=42,
-            )
+        pos, figsize = self._layout(dag)
 
         colors = [dag.nodes[node]["color"] for node in dag.nodes]
 
@@ -54,7 +47,7 @@ class GraphRenderer(BaseRenderer):
 
         labels = {node: dag.nodes[node]["label"] for node in dag.nodes}
 
-        plt.figure(figsize=(16, 9))
+        plt.figure(figsize=figsize)
 
         nx.draw_networkx_nodes(
             dag,
@@ -63,11 +56,16 @@ class GraphRenderer(BaseRenderer):
             node_size=sizes,
         )
 
+        # Passing the node sizes makes each arrow stop at the edge of its
+        # target node instead of ending hidden underneath it.
         nx.draw_networkx_edges(
             dag,
             pos,
+            node_size=sizes,
             arrows=True,
+            arrowstyle="-|>",
             arrowsize=20,
+            width=GraphStyle.EDGE_WIDTH,
             edge_color=GraphStyle.EDGE_COLOR,
         )
 
@@ -143,6 +141,92 @@ class GraphRenderer(BaseRenderer):
 
         plt.axis("off")
         plt.tight_layout()
+
+    def _layout(
+        self,
+        dag: nx.DiGraph,
+    ) -> tuple[dict, tuple[float, float]]:
+        """
+        Node positions and figure size.
+
+        Graphviz's "dot" layout is used when Graphviz is installed. Without
+        it, the plan is drawn top-down by the layered layout below, which
+        needs no extra software.
+        """
+
+        try:
+            return (
+                graphviz_layout(
+                    dag,
+                    prog="dot",
+                ),
+                (16, 9),
+            )
+        except Exception:
+            pass
+
+        try:
+            return self._layered_layout(dag)
+        except nx.NetworkXUnfeasible:
+            return (
+                nx.spring_layout(
+                    dag,
+                    seed=42,
+                ),
+                (16, 9),
+            )
+
+    @staticmethod
+    def _layered_layout(
+        dag: nx.DiGraph,
+    ) -> tuple[dict, tuple[float, float]]:
+        """
+        One row per DAG level with the root at the top, so every edge
+        points downwards. Each node is placed near the average position of
+        its parents, which keeps branches apart and avoids crossing edges.
+        """
+
+        if dag.number_of_edges() == 0 and dag.number_of_nodes() > 0:
+            # Operators without any edges (e.g. a plan tree without the
+            # "(N)" operator ids) are wrapped into a grid, not one long row.
+            columns = math.ceil(math.sqrt(dag.number_of_nodes()))
+            rows = math.ceil(dag.number_of_nodes() / columns)
+
+            pos = {
+                node: (index % columns, -(index // columns))
+                for index, node in enumerate(sorted(dag.nodes))
+            }
+
+            return pos, (max(10.0, 1.8 * columns + 4), max(7.0, 1.3 * rows + 2))
+
+        levels = list(nx.topological_generations(dag))
+
+        pos: dict = {}
+
+        def parent_position(node) -> float:
+            parents = [pos[parent][0] for parent in dag.predecessors(node)]
+            return sum(parents) / len(parents) if parents else 0.0
+
+        for depth, level in enumerate(levels):
+
+            ordered = sorted(
+                level,
+                key=lambda node: (parent_position(node), node),
+            )
+
+            offset = (len(ordered) - 1) / 2
+
+            for index, node in enumerate(ordered):
+                pos[node] = (index - offset, -depth)
+
+        widest = max((len(level) for level in levels), default=1)
+
+        figsize = (
+            max(10.0, 1.8 * widest + 4),
+            max(7.0, 1.3 * len(levels) + 2),
+        )
+
+        return pos, figsize
 
     def render(
         self,

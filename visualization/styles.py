@@ -6,7 +6,8 @@ from models.enums import Severity
 class GraphStyle:
 
     NODE_COLOR = "#4F46E5"
-    EDGE_COLOR = "#6B7280"
+    EDGE_COLOR = "#374151"
+    EDGE_WIDTH = 2.0
 
     SEVERITY_COLORS = {
         Severity.LOW: "#22C55E",
