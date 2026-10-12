@@ -5,11 +5,6 @@ from models.enums import OperatorType, Severity
 from models.execution_dag import ExecutionDAG
 
 from .base import Rule
-from .shuffle_utils import (
-    format_keys,
-    partitioning_keys,
-    shuffle_partition_count,
-)
 
 
 class PartitionRule(Rule):
@@ -48,25 +43,14 @@ class PartitionRule(Rule):
 
             elif "hashpartitioning" in arguments:
 
-                description = (
-                    "Spark redistributes rows using hash "
-                    "partitioning across executors."
-                )
-                count = shuffle_partition_count(operator)
-
-                if count is not None:
-                    keys = format_keys(partitioning_keys(operator))
-                    by_keys = f" by {keys}" if keys else ""
-                    description += (
-                        f" Rows are hash-partitioned{by_keys} into "
-                        f"{count} partitions."
-                    )
-
                 findings.append(
                     AnalysisFinding(
                         rule=self.__class__.__name__,
                         title="Hash Partitioning Detected",
-                        description=description,
+                        description=(
+                            "Spark redistributes rows using hash "
+                            "partitioning across executors."
+                        ),
                         severity=Severity.MEDIUM,
                         operator_id=operator.operator_id,
                     )
@@ -74,25 +58,14 @@ class PartitionRule(Rule):
 
             elif "rangepartitioning" in arguments:
 
-                description = (
-                    "Spark redistributes rows using range "
-                    "partitioning to preserve ordering."
-                )
-                count = shuffle_partition_count(operator)
-
-                if count is not None:
-                    keys = format_keys(partitioning_keys(operator))
-                    by_keys = f" by {keys}" if keys else ""
-                    description += (
-                        f" Rows are range-partitioned{by_keys} into "
-                        f"{count} partitions."
-                    )
-
                 findings.append(
                     AnalysisFinding(
                         rule=self.__class__.__name__,
                         title="Range Partitioning Detected",
-                        description=description,
+                        description=(
+                            "Spark redistributes rows using range "
+                            "partitioning to preserve ordering."
+                        ),
                         severity=Severity.MEDIUM,
                         operator_id=operator.operator_id,
                     )
