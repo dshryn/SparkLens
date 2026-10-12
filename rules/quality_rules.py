@@ -449,22 +449,6 @@ class ExecutionQualityRule(Rule):
         parents: dict[int, list[int]],
     ) -> list[AnalysisFinding]:
 
-        # FILE_SCAN is the normal table/file source.
-        source_types = {
-            OperatorType.FILE_SCAN
-        }
-
-        # RANGE is not currently present in OperatorType in the retrieved
-        # repository, but preserve compatibility if it is added later.
-        range_type = getattr(
-            OperatorType,
-            "RANGE",
-            None,
-        )
-
-        if range_type is not None:
-            source_types.add(range_type)
-
         findings: list[AnalysisFinding] = []
 
         for operator in dag.operators.values():
@@ -476,22 +460,12 @@ class ExecutionQualityRule(Rule):
                 operator.operator_id
             )
 
-            has_source_child = any(
-                child.operator_type in source_types
+            has_file_scan_child = any(
+                child.operator_type == OperatorType.FILE_SCAN
                 for child in children
             )
 
-            # Parser currently classifies Range as UNKNOWN. When that is the
-            # case, identify it structurally by the source operator name.
-            has_range_source = any(
-                child.name.lower().startswith("range")
-                for child in children
-            )
-
-            if not (
-                has_source_child
-                or has_range_source
-            ):
+            if not has_file_scan_child:
                 continue
 
             findings.append(
