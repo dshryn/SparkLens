@@ -6,6 +6,7 @@ from models.execution_dag import ExecutionDAG
 from models.physical_operator import PhysicalOperator
 
 from .base import Rule
+from .shuffle_utils import shuffle_partition_count
 
 
 class ExecutionQualityRule(Rule):
@@ -518,11 +519,14 @@ class ExecutionQualityRule(Rule):
     ) -> list[AnalysisFinding]:
 
         findings: list[AnalysisFinding] = []
+        has_aqe = False
 
         for operator in dag.operators.values():
 
             if operator.name != "AdaptiveSparkPlan":
                 continue
+
+            has_aqe = True
 
             findings.append(
                 AnalysisFinding(
@@ -539,6 +543,62 @@ class ExecutionQualityRule(Rule):
                     metadata={
                         "positive": True,
                         "category": "aqe_enabled",
+                    },
+                )
+            )
+
+        if has_aqe:
+            return findings
+
+        exchanges = [
+            operator
+            for operator in dag.operators.values()
+            if operator.operator_type in (
+                OperatorType.EXCHANGE,
+                OperatorType.BROADCAST_EXCHANGE,
+            )
+        ]
+
+        if not exchanges:
+            return findings
+
+        findings.append(
+            AnalysisFinding(
+                rule=self.__class__.__name__,
+                title="AQE Disabled",
+                description=(
+                    "Adaptive Query Execution is turned off for this plan."
+                ),
+                severity=Severity.LOW,
+                metadata={
+                    "positive": False,
+                    "category": "aqe_disabled",
+                },
+            )
+        )
+
+        counts = {
+            shuffle_partition_count(operator)
+            for operator in exchanges
+            if operator.operator_type == OperatorType.EXCHANGE
+        } - {None}
+
+        if len(counts) == 1:
+
+            partitions = next(iter(counts))
+
+            findings.append(
+                AnalysisFinding(
+                    rule=self.__class__.__name__,
+                    title="Static Shuffle Partitions",
+                    description=(
+                        f"The shuffle keeps a static {partitions} partitions."
+                    ),
+                    severity=Severity.LOW,
+                    metadata={
+                        "positive": False,
+                        "category": "static_shuffle_partitions",
+                        "partitions": partitions,
                     },
                 )
             )
