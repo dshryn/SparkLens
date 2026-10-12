@@ -1,0 +1,169 @@
+== Physical Plan ==
+AdaptiveSparkPlan isFinalPlan=false
++- Project [customer_id#1, customer_name#2, region#3, total_spend#40, order_count#41, rank#55]
+   +- Window [rank(total_spend#40) windowspecdefinition(region#3, total_spend#40 DESC NULLS LAST, specifiedwindowframe(RowFrame, unboundedpreceding$(), currentrow$())) AS rank#55], [region#3], [total_spend#40 DESC NULLS LAST]
+      +- Sort [region#3 ASC NULLS FIRST, total_spend#40 DESC NULLS LAST], false, 0
+         +- Project [customer_id#1, customer_name#2, region#3, total_spend#40, order_count#41]
+            +- BroadcastHashJoin [customer_id#1], [customer_id#20], LeftOuter, BuildRight, false
+               :- SortMergeJoin [customer_id#1], [customer_id#30], LeftOuter
+               :  :- Exchange hashpartitioning(customer_id#1, 200), ENSURE_REQUIREMENTS, [plan_id=101]
+               :  :  +- HashAggregate(keys=[customer_id#1, customer_name#2, region#3], functions=[sum(amount#8), count(order_id#7)])
+               :  :     +- Exchange hashpartitioning(customer_id#1, customer_name#2, region#3, 200), ENSURE_REQUIREMENTS, [plan_id=100]
+               :  :        +- HashAggregate(keys=[customer_id#1, customer_name#2, region#3], functions=[partial_sum(amount#8), partial_count(order_id#7)])
+               :  :           +- Filter (status#10 = 'COMPLETED' AND amount#8 > 0)
+               :  :              +- Project [customer_id#1, customer_name#2, region#3, order_id#7, amount#8, status#10]
+               :  :                 +- BroadcastHashJoin [customer_id#1], [customer_id#12], Inner, BuildRight, false
+               :  :                    :- FileScan parquet customers
+               :  :                    +- BroadcastExchange HashedRelationBroadcastMode(List(input[0, int, true]),false), [plan_id=98]
+               :  :                       +- Filter (is_active#14 = true)
+               :  :                          +- FileScan parquet customer_profiles
+               :  +- Exchange hashpartitioning(customer_id#30, 200), ENSURE_REQUIREMENTS, [plan_id=102]
+               :     +- Filter (is_current#31 = true)
+               :        +- Project [customer_id#30, segment_id#32]
+               :           +- FileScan parquet customer_segments
+               +- BroadcastExchange HashedRelationBroadcastMode(List(input[0, int, true]),false), [plan_id=103]
+                  +- Project [customer_id#20, loyalty_tier#21]
+                     +- Filter (tier_status#22 = 'ACTIVE')
+                        +- FileScan parquet loyalty_accounts
+
+(4) FileScan
+Output [1]: [customer_id, customer_name, region]
+Arguments: parquet, path=/warehouse/customers
+
+(5) FileScan
+Output [1]: [customer_id, customer_name, region]
+Arguments: parquet, path=/warehouse/customer_profiles
+
+(6) Filter
+Input [1]: [is_active]
+Condition: is_active = true
+
+(7) Project
+Input [1]: [customer_id, customer_name, region]
+Arguments: customer_id, customer_name, region
+
+(8) FileScan
+Output [1]: [order_id, customer_id, amount, status]
+Arguments: parquet, path=/warehouse/orders
+
+(9) Filter
+Input [1]: [status, amount]
+Condition: status = COMPLETED AND amount > 0
+
+(10) Project
+Input [1]: [customer_id, order_id, amount]
+Arguments: customer_id, order_id, amount
+
+(11) BroadcastHashJoin
+Left keys [1]: [customer_id]
+Right keys [1]: [customer_id]
+Join type: Inner
+Build side: Right
+
+(12) HashAggregate
+Keys: [customer_id, customer_name, region]
+Functions: [sum(amount), count(order_id)]
+
+(13) Exchange
+Partitioning: hashpartitioning(customer_id, customer_name, region, 200)
+Exchange mode: ENSURE_REQUIREMENTS
+
+(14) HashAggregate
+Keys: [customer_id, customer_name, region]
+Functions: [partial_sum(amount), partial_count(order_id)]
+
+(15) Exchange
+Partitioning: hashpartitioning(customer_id, 200)
+Exchange mode: ENSURE_REQUIREMENTS
+
+(16) FileScan
+Output [1]: [customer_id, segment_id, is_current]
+Arguments: parquet, path=/warehouse/customer_segments
+
+(17) Filter
+Input [1]: [is_current]
+Condition: is_current = true
+
+(18) Project
+Input [1]: [customer_id, segment_id]
+Arguments: customer_id, segment_id
+
+(19) SortMergeJoin
+Left keys [1]: [customer_id]
+Right keys [1]: [customer_id]
+Join type: LeftOuter
+
+(20) FileScan
+Output [1]: [customer_id, loyalty_tier, tier_status]
+Arguments: parquet, path=/warehouse/loyalty_accounts
+
+(21) Filter
+Input [1]: [tier_status]
+Condition: tier_status = ACTIVE
+
+(22) Project
+Input [1]: [customer_id, loyalty_tier]
+Arguments: customer_id, loyalty_tier
+
+(23) BroadcastExchange
+Partitioning: HashedRelationBroadcastMode(customer_id)
+Exchange mode: EXECUTOR_BROADCAST
+
+(24) BroadcastHashJoin
+Left keys [1]: [customer_id]
+Right keys [1]: [customer_id]
+Join type: LeftOuter
+Build side: Right
+
+(25) Sort
+Order: [region ASC, total_spend DESC]
+Global: false
+
+(26) Window
+Function: rank(total_spend)
+Partition specification: [region]
+Order specification: [total_spend DESC]
+
+(27) Project
+Output: [customer_id, customer_name, region, total_spend, order_count, rank]
+Expressions:
+  customer_id
+  customer_name
+  region
+  total_spend
+  order_count
+  rank
+
+(28) Exchange
+Partitioning: SinglePartition
+Exchange mode: ENSURE_REQUIREMENTS
+
+(29) Sort
+Order: [total_spend DESC]
+Global: true
+
+(30) HashAggregaterd
+Keys: [region]
+Functions: [sum(total_spend), count(customer_id)]
+
+(31) Exchange
+Partitioning: hashpartitioning(region, 200)
+Exchange mode: ENSURE_REQUIREMENTS
+
+(32) HashAggregate
+Keys: [region]
+Functions: [partial_sum(total_spend), partial_count(customer_id)]
+
+(33) FileScan
+Output [1]: [region, tax_rate]
+Arguments: parquet, path=/warehouse/regions
+
+(34) BroadcastExchange
+Partitioning: HashedRelationBroadcastMode(region)
+Exchange mode: EXECUTOR_BROADCAST
+
+(35) BroadcastHashJoin
+Left keys [1]: [region]
+Right keys [1]: [region]
+Join type: Inner
+Build side: Right

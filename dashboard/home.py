@@ -1,0 +1,133 @@
+import streamlit as st
+
+from dashboard.styles.theme import apply_theme, render_sidebar
+
+SAMPLE_PLAN = """== Physical Plan ==
+(1) FileScan
+Output [1]: [id, value]
+Arguments: parquet scan
+
+(2) Filter
+Input [1]: [id, value]
+Condition: value > 10
+
+(3) BroadcastHashJoin
+Left keys [1]: [id]
+Right keys [1]: [id]
+Join type: Inner
+"""
+
+
+def open_analyzer() -> None:
+    st.switch_page("pages/1_Analyzer.py")
+
+
+def open_sample() -> None:
+    st.session_state["plan_editor"] = SAMPLE_PLAN
+    st.switch_page("pages/1_Analyzer.py")
+
+
+apply_theme()
+render_sidebar()
+
+st.markdown(
+    '<section class="sl-hero">'
+    '<div class="sl-hero-mark">⚡</div>'
+    '<div class="sl-eyebrow">Spark execution intelligence</div>'
+    '<h1>SparkLens</h1>'
+    '<div class="sl-hero-tagline">Understand. Diagnose. Optimize.</div>'
+    '<p>Your Spark physical plan, explained.</p>'
+    "</section>",
+    unsafe_allow_html=True,
+)
+
+cta_left, cta_right = st.columns([1, 1], gap="small")
+with cta_left:
+    with st.container(key="landing-cta-left"):
+        st.markdown(
+            '<div class="sl-start-card">'
+            '<div class="sl-eyebrow">Start here</div>'
+            "<h3>Analyze a Spark execution plan</h3>"
+            '<p class="sl-muted">Upload or paste a formatted physical plan to see its '
+            "DAG, findings, and recommendations.</p></div>",
+            unsafe_allow_html=True,
+        )
+        st.button(
+            "⚡  Analyze a Spark Plan",
+            type="primary",
+            use_container_width=True,
+            on_click=open_analyzer,
+        )
+with cta_right:
+    with st.container(key="landing-cta-right"):
+        st.markdown(
+            '<div class="sl-start-card sl-start-card-quiet">'
+            '<div class="sl-eyebrow">Quick start</div>'
+            "<h3>See it in action</h3>"
+            '<p class="sl-muted">Load a small sample plan and explore the complete '
+            "analysis workflow.</p></div>",
+            unsafe_allow_html=True,
+        )
+        st.button(
+            "Try Sample Plan",
+            use_container_width=True,
+            on_click=open_sample,
+        )
+
+st.markdown(
+    '<div class="sl-section-heading">'
+    '<div class="sl-eyebrow">The workflow</div>'
+    "<h2>How SparkLens works</h2></div>",
+    unsafe_allow_html=True,
+)
+
+steps = st.columns(4, gap="small")
+for column, number, title, description in zip(
+    steps,
+    ("01", "02", "03", "04"),
+    ("Parse", "Diagnose", "Explain", "Optimize"),
+    (
+        "Understand the execution plan",
+        "Detect expensive operations",
+        "See why they matter",
+        "Get actionable recommendations",
+    ),
+):
+    with column:
+        st.markdown(
+            f'<div class="sl-step"><span>{number}</span><b>{title}</b>'
+            f"<small>{description}</small></div>",
+            unsafe_allow_html=True,
+        )
+
+st.markdown(
+    '<div class="sl-section-heading sl-capability-heading">'
+    '<div class="sl-eyebrow">Built for Spark engineers</div>'
+    "<h2>Everything you need to read the plan</h2></div>",
+    unsafe_allow_html=True,
+)
+
+capabilities = st.columns(4, gap="small")
+for column, icon, title, description in zip(
+    capabilities,
+    ("⚡", "◈", "✦", "↓"),
+    ("Execution DAG", "Optimization", "AI insights", "Reports"),
+    (
+        "Visualize your Spark execution graph.",
+        "Detect costly Spark patterns.",
+        "Understand why the plan matters.",
+        "Export analysis results.",
+    ),
+):
+    with column:
+        st.markdown(
+            f'<div class="sl-capability"><span>{icon}</span><b>{title}</b>'
+            f"<small>{description}</small></div>",
+            unsafe_allow_html=True,
+        )
+
+st.markdown(
+    '<div class="sl-footer-note">Deterministic analysis first. '
+    "AI explains, never replaces the analysis.</div>",
+    unsafe_allow_html=True,
+)
