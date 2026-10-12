@@ -10,18 +10,24 @@ import streamlit as st
 from dashboard.styles.theme import apply_theme, render_sidebar
 
 SAMPLE_PLAN = """== Physical Plan ==
-(1) FileScan
-Output [1]: [id, value]
-Arguments: parquet scan
-
-(2) Filter
-Input [1]: [id, value]
-Condition: value > 10
-
-(3) BroadcastHashJoin
-Left keys [1]: [id]
-Right keys [1]: [id]
-Join type: Inner
+AdaptiveSparkPlan isFinalPlan=false
++- HashAggregate(keys=[region#12], functions=[sum(amount#3)])
+   +- Exchange hashpartitioning(region#12, 200), ENSURE_REQUIREMENTS, [plan_id=45]
+      +- HashAggregate(keys=[region#12], functions=[partial_sum(amount#3)])
+         +- Project [amount#3, region#12]
+            +- BroadcastHashJoin [customer_id#2], [customer_id#10], Inner, BuildRight, false
+               :- Filter (isnotnull(amount#3) AND (amount#3 > 100))
+               :  +- FileScan parquet [customer_id#2,amount#3] Batched: true,
+               DataFilters: [isnotnull(amount#3), (amount#3 > 100)], Format: Parquet, Location:
+               InMemoryFileIndex(1 paths)[file:/warehouse/orders], PartitionFilters: [], PushedFilters:
+               [IsNotNull(amount), GreaterThan(amount,100)], ReadSchema:
+               struct<customer_id:int,amount:int>
+               +- BroadcastExchange HashedRelationBroadcastMode(List(cast(input[0, int,
+               false] as bigint)),false), [plan_id=40]
+                  +- FileScan parquet [customer_id#10,region#12] Batched: true,
+                  DataFilters: [], Format: Parquet, Location: InMemoryFileIndex(1 paths)
+                  [file:/warehouse/customers], PartitionFilters: [], PushedFilters: [], ReadSchema:
+                  struct<customer_id:int,region:string>
 """
 
 

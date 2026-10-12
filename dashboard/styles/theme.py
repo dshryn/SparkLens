@@ -209,6 +209,7 @@ def render_sidebar() -> None:
             "</div>",
             unsafe_allow_html=True,
         )
+        st.page_link("home.py", label="Home", icon="🏠")
         st.markdown(
             '<div class="sl-sidebar-section">Analyze</div>',
             unsafe_allow_html=True,
