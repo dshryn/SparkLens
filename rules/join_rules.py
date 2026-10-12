@@ -1,12 +1,11 @@
 from __future__ import annotations
 
-import re
-
 from models.analysis_finding import AnalysisFinding
 from models.enums import OperatorType, Severity
 from models.execution_dag import ExecutionDAG
 
 from .base import Rule
+from .shuffle_utils import clean_keys, format_keys
 
 
 class BroadcastJoinRule(Rule):
@@ -127,7 +126,7 @@ class BroadcastJoinRule(Rule):
             description = config["description"]
             keys = self._join_keys(operator)
 
-            join_type = operator.metadata.get("Join type", "")
+            join_type = self._metadata_value(operator, "Join type") or ""
             if (
                 operator.operator_type == OperatorType.SORT_MERGE_JOIN
                 and "fullouter" in join_type.lower().replace(" ", "")
@@ -141,12 +140,13 @@ class BroadcastJoinRule(Rule):
                 if config["strategy"] == "SortMergeJoin":
                     description += (
                         " Both inputs are hash-partitioned and sorted on "
-                        f"{keys}, and these shuffles are required by the join."
+                        f"{format_keys(keys)}, and these shuffles are required "
+                        "by the join."
                     )
                 else:
                     description += (
                         " Both sides are hash-partitioned on "
-                        f"{keys} and joined without a sort step."
+                        f"{format_keys(keys)} and joined without a sort step."
                     )
 
             findings.append(
@@ -173,29 +173,32 @@ class BroadcastJoinRule(Rule):
         Copies parser metadata into analysis metadata if available.
         """
 
-        value = operator.metadata.get(source_key)
+        value = BroadcastJoinRule._metadata_value(
+            operator,
+            source_key,
+        )
 
         if value:
             metadata[target_key] = value
 
     @staticmethod
-    def _join_keys(operator) -> str | None:
-        raw_keys = operator.metadata.get("Left keys") or operator.metadata.get(
-            "left_keys"
+    def _metadata_value(operator, source_key: str) -> str | None:
+        return next(
+            (
+                value
+                for key, value in operator.metadata.items()
+                if key.startswith(source_key)
+            ),
+            None,
         )
 
-        if not raw_keys:
-            return None
-
-        keys: list[str] = []
-
-        for raw_key in str(raw_keys).strip("[]").split(","):
-            key = re.sub(r"#\d+L?$", "", raw_key.strip()).strip("[] ")
-
-            if key and key not in keys:
-                keys.append(key)
-
-        return " and ".join(keys) or None
+    @staticmethod
+    def _join_keys(operator) -> list[str]:
+        raw_keys = BroadcastJoinRule._metadata_value(
+            operator,
+            "Left keys",
+        )
+        return clean_keys(str(raw_keys)) if raw_keys else []
 
     @classmethod
     def _both_sides_have_exchange(
