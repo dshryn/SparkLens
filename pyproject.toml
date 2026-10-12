@@ -29,4 +29,14 @@ include-package-data = true
 where = ["."]
 
 [tool.poetry]
-package-mode = false
+packages = [
+    { include = "ai" },
+    { include = "analyzer" },
+    { include = "cli" },
+    { include = "dashboard" },
+    { include = "models" },
+    { include = "report" },
+    { include = "rules" },
+    { include = "services" },
+    { include = "visualization" },
+]
