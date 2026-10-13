@@ -2,6 +2,7 @@ import importlib.util
 import json
 import sys
 import unittest
+from unittest.mock import patch
 
 from dataclasses import dataclass
 from enum import Enum
@@ -100,6 +101,27 @@ class BridgeContractTests(unittest.TestCase):
     def test_rejects_non_object_request(self):
         with self.assertRaises(bridge.BridgeError):
             bridge.validate_request([])
+
+    def test_pipeline_import_error_includes_underlying_cause(self):
+        original_import = __import__
+
+        def fail_pipeline_import(name, *args, **kwargs):
+            if name == "services.pipeline":
+                raise ImportError("No module named 'backend_dependency'")
+            return original_import(name, *args, **kwargs)
+
+        with patch("builtins.__import__", side_effect=fail_pipeline_import):
+            with self.assertRaises(bridge.BridgeError) as context:
+                bridge.run_existing_pipeline("plan", enable_ai=False)
+
+        self.assertEqual(
+            context.exception.code,
+            "BACKEND_UNAVAILABLE",
+        )
+        self.assertIn(
+            "No module named 'backend_dependency'",
+            context.exception.message,
+        )
 
     def test_serializes_dataclass_and_enum(self):
         finding = ExampleFinding(

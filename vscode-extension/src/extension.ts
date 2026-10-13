@@ -2,6 +2,7 @@ import * as vscode from "vscode";
 
 import {
     analyzePlan,
+    getAnalysisRuntimeDetails,
     resolveProjectRoot,
     SparkLensBackendError
 } from "./backend";
@@ -127,6 +128,14 @@ export function activate(
                 output.appendLine("ANALYSIS ERROR");
                 output.appendLine("----------------------------------------");
                 output.appendLine(message);
+                output.appendLine("");
+                output.appendLine("Runtime details");
+                for (const detail of getAnalysisRuntimeDetails(
+                    context.extensionPath,
+                    projectRoot
+                )) {
+                    output.appendLine(detail);
+                }
 
                 output.show(true);
 

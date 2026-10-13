@@ -57,8 +57,15 @@ Example:
 `D:\Projects\SparkLens`
 
 If left empty, the extension automatically resolves the backend root
-from the extension directory or the active workspace when it contains
-`services/pipeline.py` and `analyzer/analyzer.py`.
+from the repository root one level above the development extension
+directory, or from the active workspace when it contains
+`services/pipeline.py` and `analyzer/analyzer.py`. This also supports
+opening a plan-only folder such as `demo_plans` while running the
+development extension.
+
+If analysis fails, the SparkLens Output channel includes the resolved
+Python interpreter, backend root, working directory, and bridge path.
+Backend import errors include the underlying Python import exception.
 
 ### sparklens.analysisTimeoutSeconds
 

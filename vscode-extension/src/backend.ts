@@ -104,7 +104,7 @@ function getPythonExecutable(extensionPath?: string): string {
             extensionPath,
             ".venv",
             process.platform === "win32"
-                ? "Scripts\python.exe"
+                ? path.join("Scripts", "python.exe")
                 : "bin/python"
         );
 
@@ -114,6 +114,27 @@ function getPythonExecutable(extensionPath?: string): string {
     }
 
     return "python";
+}
+
+export function getAnalysisRuntimeDetails(
+    extensionPath: string,
+    projectRoot: string
+): string[] {
+    const configuredProjectPath = getConfiguration()
+        .get<string>("projectPath", "")
+        .trim();
+
+    return [
+        `Python interpreter: ${getPythonExecutable(extensionPath)}`,
+        `Project root: ${projectRoot}`,
+        `sparklens.projectPath: ${configuredProjectPath || "(unset; auto-resolved)"}`,
+        `Working directory: ${projectRoot}`,
+        `Bridge script: ${path.join(
+            extensionPath,
+            "python",
+            "sparklens_vscode_bridge.py"
+        )}`
+    ];
 }
 
 function getTimeoutMs(): number {

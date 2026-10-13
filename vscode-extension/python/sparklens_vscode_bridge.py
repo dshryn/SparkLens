@@ -307,9 +307,8 @@ def run_existing_pipeline(
     except ImportError as exc:
         raise BridgeError(
             "BACKEND_UNAVAILABLE",
-            "The SparkLens analysis pipeline could not be imported. "
-            "Configure sparklens.projectPath or install a compatible "
-            "SparkLens backend in the selected Python environment.",
+            "The SparkLens analysis pipeline could not be imported: "
+            f"{type(exc).__name__}: {exc}",
         ) from exc
 
     try:
