@@ -1,0 +1,151 @@
+== Physical Plan ==
+AdaptiveSparkPlan (25)
++- Project (24)
+   +- Project (23)
+      +- Project (22)
+         +- BroadcastHashJoin LeftOuter BuildRight (21)
+            :- Project (13)
+            :  +- BroadcastHashJoin LeftOuter BuildRight (12)
+            :     :- HashAggregate (6)
+            :     :  +- Exchange (5)
+            :     :     +- HashAggregate (4)
+            :     :        +- Project (3)
+            :     :           +- Filter (2)
+            :     :              +- Scan csv  (1)
+            :     +- BroadcastExchange (11)
+            :        +- Project (10)
+            :           +- Filter (9)
+            :              +- Generate (8)
+            :                 +- Scan json  (7)
+            +- BroadcastExchange (20)
+               +- HashAggregate (19)
+                  +- Exchange (18)
+                     +- HashAggregate (17)
+                        +- Project (16)
+                           +- Filter (15)
+                              +- Scan csv  (14)
+
+
+(1) Scan csv 
+Output [4]: [tpep_pickup_datetime#17, passenger_count#18, trip_distance#19, fare_amount#20]
+Batched: false
+Location: InMemoryFileIndex [file:/C:/Users/yashw/projects/bda/surge-predictor-app/data/fixtures/nyc_cab_sample.csv]
+PushedFilters: [IsNotNull(passenger_count), IsNotNull(trip_distance), IsNotNull(fare_amount), GreaterThan(passenger_count,0), GreaterThan(trip_distance,0.0), GreaterThan(fare_amount,0.0)]
+ReadSchema: struct<tpep_pickup_datetime:timestamp,passenger_count:int,trip_distance:double,fare_amount:double>
+
+(2) Filter
+Input [4]: [tpep_pickup_datetime#17, passenger_count#18, trip_distance#19, fare_amount#20]
+Condition : (((((isnotnull(passenger_count#18) AND isnotnull(trip_distance#19)) AND isnotnull(fare_amount#20)) AND (passenger_count#18 > 0)) AND (trip_distance#19 > 0.0)) AND (fare_amount#20 > 0.0))
+
+(3) Project
+Output [2]: [hour(tpep_pickup_datetime#17, Some(Asia/Calcutta)) AS pickup_hour#23, cast(tpep_pickup_datetime#17 as date) AS pickup_date#26]
+Input [4]: [tpep_pickup_datetime#17, passenger_count#18, trip_distance#19, fare_amount#20]
+
+(4) HashAggregate
+Input [2]: [pickup_hour#23, pickup_date#26]
+Keys [2]: [pickup_date#26, pickup_hour#23]
+Functions [1]: [partial_count(1)]
+Aggregate Attributes [1]: [count#104L]
+Results [3]: [pickup_date#26, pickup_hour#23, count#105L]
+
+(5) Exchange
+Input [3]: [pickup_date#26, pickup_hour#23, count#105L]
+Arguments: hashpartitioning(pickup_date#26, pickup_hour#23, 200), ENSURE_REQUIREMENTS, [plan_id=522]
+
+(6) HashAggregate
+Input [3]: [pickup_date#26, pickup_hour#23, count#105L]
+Keys [2]: [pickup_date#26, pickup_hour#23]
+Functions [1]: [count(1)]
+Aggregate Attributes [1]: [count(1)#37L]
+Results [3]: [pickup_date#26, pickup_hour#23, count(1)#37L AS trip_count#38L]
+
+(7) Scan json 
+Output [1]: [daily#45]
+Batched: false
+Location: InMemoryFileIndex [file:/C:/Users/yashw/projects/bda/surge-predictor-app/data/fixtures/nyc_weather_sample.json]
+ReadSchema: struct<daily:struct<precipitation_sum:array<double>,temperature_2m_max:array<double>,time:array<string>>>
+
+(8) Generate
+Input [1]: [daily#45]
+Arguments: explode(arrays_zip(daily#45.time, daily#45.temperature_2m_max, daily#45.precipitation_sum, time, temperature_2m_max, precipitation_sum)), false, [data#50]
+
+(9) Filter
+Input [1]: [data#50]
+Condition : isnotnull(cast(data#50.time as date))
+
+(10) Project
+Output [4]: [cast(data#50.time as date) AS pickup_date#52, data#50.temperature_2m_max AS temperature#53, data#50.precipitation_sum AS precipitation#54, CASE WHEN (data#50.precipitation_sum > 0.0) THEN 1 ELSE 0 END AS rain_flag#58]
+Input [1]: [data#50]
+
+(11) BroadcastExchange
+Input [4]: [pickup_date#52, temperature#53, precipitation#54, rain_flag#58]
+Arguments: HashedRelationBroadcastMode(List(input[0, date, true]),false), [plan_id=525]
+
+(12) BroadcastHashJoin
+Left keys [1]: [pickup_date#26]
+Right keys [1]: [pickup_date#52]
+Join type: LeftOuter
+Join condition: None
+
+(13) Project
+Output [6]: [pickup_date#26, pickup_hour#23, trip_count#38L, temperature#53, precipitation#54, rain_flag#58]
+Input [7]: [pickup_date#26, pickup_hour#23, trip_count#38L, pickup_date#52, temperature#53, precipitation#54, rain_flag#58]
+
+(14) Scan csv 
+Output [1]: [startdatetime#76]
+Batched: false
+Location: InMemoryFileIndex [file:/C:/Users/yashw/projects/bda/surge-predictor-app/data/fixtures/nyc_events_sample.csv]
+ReadSchema: struct<startdatetime:timestamp>
+
+(15) Filter
+Input [1]: [startdatetime#76]
+Condition : isnotnull(cast(startdatetime#76 as date))
+
+(16) Project
+Output [1]: [cast(startdatetime#76 as date) AS event_date#78]
+Input [1]: [startdatetime#76]
+
+(17) HashAggregate
+Input [1]: [event_date#78]
+Keys [1]: [event_date#78]
+Functions: []
+Aggregate Attributes: []
+Results [1]: [event_date#78]
+
+(18) Exchange
+Input [1]: [event_date#78]
+Arguments: hashpartitioning(event_date#78, 200), ENSURE_REQUIREMENTS, [plan_id=528]
+
+(19) HashAggregate
+Input [1]: [event_date#78]
+Keys [1]: [event_date#78]
+Functions: []
+Aggregate Attributes: []
+Results [2]: [event_date#78, 1 AS event_flag#79]
+
+(20) BroadcastExchange
+Input [2]: [event_date#78, event_flag#79]
+Arguments: HashedRelationBroadcastMode(List(input[0, date, true]),false), [plan_id=531]
+
+(21) BroadcastHashJoin
+Left keys [1]: [pickup_date#26]
+Right keys [1]: [event_date#78]
+Join type: LeftOuter
+Join condition: None
+
+(22) Project
+Output [9]: [pickup_date#26, coalesce(pickup_hour#23, 0) AS pickup_hour#83, trip_count#38L, temperature#53, precipitation#54, coalesce(rain_flag#58, 0) AS rain_flag#85, coalesce(event_flag#79, 0) AS event_flag#86, CASE WHEN dayofweek(pickup_date#26) IN (1,7) THEN 1 ELSE 0 END AS is_weekend#87, CASE WHEN pickup_hour#23 IN (8,9,17,18,19) THEN 1 ELSE 0 END AS peak_hour#88]
+Input [8]: [pickup_date#26, pickup_hour#23, trip_count#38L, temperature#53, precipitation#54, rain_flag#58, event_date#78, event_flag#79]
+
+(23) Project
+Output [11]: [pickup_date#26, pickup_hour#83, trip_count#38L, temperature#53, precipitation#54, rain_flag#85, event_flag#86, is_weekend#87, peak_hour#88, cast(((trip_count#38L > 1) AND (((rain_flag#85 = 1) OR (event_flag#86 = 1)) OR (peak_hour#88 = 1))) as int) AS surge_label#89, UDF(struct(pickup_hour_double_VectorAssembler_a7b1feb32dbf, cast(pickup_hour#83 as double), trip_count_double_VectorAssembler_a7b1feb32dbf, cast(trip_count#38L as double), rain_flag_double_VectorAssembler_a7b1feb32dbf, cast(rain_flag#85 as double), event_flag_double_VectorAssembler_a7b1feb32dbf, cast(event_flag#86 as double), is_weekend_double_VectorAssembler_a7b1feb32dbf, cast(is_weekend#87 as double), peak_hour_double_VectorAssembler_a7b1feb32dbf, cast(peak_hour#88 as double))) AS features_raw#97]
+Input [9]: [pickup_date#26, pickup_hour#83, trip_count#38L, temperature#53, precipitation#54, rain_flag#85, event_flag#86, is_weekend#87, peak_hour#88]
+
+(24) Project
+Output [12]: [pickup_date#26, pickup_hour#83, trip_count#38L, temperature#53, precipitation#54, rain_flag#85, event_flag#86, is_weekend#87, peak_hour#88, surge_label#89, features_raw#97, UDF(features_raw#97) AS features#132]
+Input [11]: [pickup_date#26, pickup_hour#83, trip_count#38L, temperature#53, precipitation#54, rain_flag#85, event_flag#86, is_weekend#87, peak_hour#88, surge_label#89, features_raw#97]
+
+(25) AdaptiveSparkPlan
+Output [12]: [pickup_date#26, pickup_hour#83, trip_count#38L, temperature#53, precipitation#54, rain_flag#85, event_flag#86, is_weekend#87, peak_hour#88, surge_label#89, features_raw#97, features#132]
+Arguments: isFinalPlan=false
+

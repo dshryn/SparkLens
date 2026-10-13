@@ -1,5 +1,7 @@
+altair
 matplotlib
 networkx
 pydot
+pyvis
 google-genai
 python-dotenv

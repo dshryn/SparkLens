@@ -263,6 +263,52 @@ The reports additionally include AI-generated:
 
 ---
 
+## NYC Cab Surge Predictor Example
+
+SparkLens includes a real physical execution plan derived from the PySpark ML feature pipeline of the NYC Cab Surge Predictor project ([`cab_surge_training.txt`](file:///c:/Users/yashw/projects/bda/surge-predictor-app/cab_surge_training.txt)).
+
+### Pipeline Summary
+
+The workload models taxi trip demand surge across NYC pickup windows:
+1. Filters raw taxi trips by positive passenger counts, distance, and fares.
+2. Extracts temporal components (`pickup_hour`, `pickup_day`, `pickup_date`).
+3. Aggregates ride demand per pickup date and hour (`trip_count`).
+4. Extracts daily weather metrics (`precipitation`, `rain_flag`).
+5. Joins weather conditions and film permit event indicators on date.
+6. Computes calendar signals (`is_weekend`, `peak_hour`).
+7. Constructs a composite surge threshold target (`surge_label`).
+8. Assembles features via `VectorAssembler` and standardizes them using `StandardScaler`.
+
+### Analyzing the Workload
+
+Run offline deterministic analysis on the sample plan:
+
+```bash
+sparklens analyze sample_plans/nyc_cab_surge_training.txt
+```
+
+or via the module entrypoint:
+
+```bash
+python -m cli.main analyze sample_plans/nyc_cab_surge_training.txt
+```
+
+Run AI-enhanced analysis (requires `GEMINI_API_KEY`):
+
+```bash
+sparklens analyze sample_plans/nyc_cab_surge_training.txt --ai
+```
+
+### Detected Characteristics & Findings
+
+When analyzing this workload, SparkLens identifies:
+- **Broadcast Hash Joins**: Efficient broadcast joins for weather and event lookup tables into demand aggregations.
+- **Shuffle Exchanges**: Hash partitioning across executors for date/hour demand aggregation.
+- **Multi-Stage Aggregation**: Two-stage `HashAggregate` (partial and complete) forming clear execution stages.
+- **Stage Boundaries**: Distinct stage boundaries created by shuffle exchanges.
+
+---
+
 ## Example Findings
 
 SparkLens generates structured findings that identify execution characteristics and their potential impact.
