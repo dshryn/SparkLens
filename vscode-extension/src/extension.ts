@@ -2,6 +2,7 @@ import * as vscode from "vscode";
 
 import {
     analyzePlan,
+    resolveProjectRoot,
     SparkLensBackendError
 } from "./backend";
 
@@ -54,30 +55,9 @@ export function activate(
             let projectRoot: string;
 
             try {
-                const config = vscode.workspace.getConfiguration(
-                    "sparklens"
+                projectRoot = resolveProjectRoot(
+                    context.extensionPath
                 );
-
-                const configuredPath = config.get<string>(
-                    "projectPath",
-                    ""
-                ).trim();
-
-                if (configuredPath) {
-                    projectRoot = configuredPath;
-                } else {
-                    const workspace =
-                        vscode.workspace.workspaceFolders?.[0];
-
-                    if (!workspace) {
-                        throw new SparkLensBackendError(
-                            "NO_WORKSPACE",
-                            "Open the SparkLens repository or configure sparklens.projectPath."
-                        );
-                    }
-
-                    projectRoot = workspace.uri.fsPath;
-                }
             } catch (error) {
                 vscode.window.showErrorMessage(
                     error instanceof Error

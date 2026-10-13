@@ -36,30 +36,14 @@ function getConfiguration() {
     return vscode.workspace.getConfiguration("sparklens");
 }
 
-function getPythonExecutable(): string {
-    const configured = getConfiguration().get<string>(
-        "pythonPath",
-        "python"
+function hasSparkLensBackendRoot(root: string): boolean {
+    return (
+        fs.existsSync(path.join(root, "services", "pipeline.py")) &&
+        fs.existsSync(path.join(root, "analyzer", "analyzer.py"))
     );
-
-    return configured.trim() || "python";
 }
 
-function getTimeoutMs(): number {
-    const seconds = getConfiguration().get<number>(
-        "analysisTimeoutSeconds",
-        120
-    );
-
-    const bounded = Math.min(
-        600,
-        Math.max(5, seconds)
-    );
-
-    return bounded * 1000;
-}
-
-function resolveProjectRoot(): string {
+export function resolveProjectRoot(extensionPath?: string): string {
     const configured = getConfiguration().get<string>(
         "projectPath",
         ""
@@ -78,16 +62,72 @@ function resolveProjectRoot(): string {
         return resolved;
     }
 
-    const workspace = vscode.workspace.workspaceFolders?.[0];
+    const candidates: string[] = [];
 
-    if (!workspace) {
-        throw new SparkLensBackendError(
-            "NO_WORKSPACE",
-            "Open the SparkLens repository or configure sparklens.projectPath."
+    if (extensionPath) {
+        candidates.push(
+            path.resolve(extensionPath, ".."),
+            extensionPath
         );
     }
 
-    return workspace.uri.fsPath;
+    const workspace = vscode.workspace.workspaceFolders?.[0];
+
+    if (workspace) {
+        candidates.push(workspace.uri.fsPath);
+    }
+
+    for (const candidate of candidates) {
+        if (hasSparkLensBackendRoot(candidate)) {
+            return candidate;
+        }
+    }
+
+    throw new SparkLensBackendError(
+        "NO_WORKSPACE",
+        "Open the SparkLens repository or configure sparklens.projectPath."
+    );
+}
+
+function getPythonExecutable(extensionPath?: string): string {
+    const configured = getConfiguration().get<string>(
+        "pythonPath",
+        ""
+    ).trim();
+
+    if (configured) {
+        return configured;
+    }
+
+    if (extensionPath) {
+        const bundledPython = path.join(
+            extensionPath,
+            ".venv",
+            process.platform === "win32"
+                ? "Scripts\python.exe"
+                : "bin/python"
+        );
+
+        if (fs.existsSync(bundledPython)) {
+            return bundledPython;
+        }
+    }
+
+    return "python";
+}
+
+function getTimeoutMs(): number {
+    const seconds = getConfiguration().get<number>(
+        "analysisTimeoutSeconds",
+        120
+    );
+
+    const bounded = Math.min(
+        600,
+        Math.max(5, seconds)
+    );
+
+    return bounded * 1000;
 }
 
 function resolveBridgePath(
@@ -194,7 +234,7 @@ export async function analyzePlan(
     options: AnalyzeOptions,
     cancellationToken: vscode.CancellationToken
 ): Promise<BridgeResponse> {
-    const python = getPythonExecutable();
+    const python = getPythonExecutable(extensionPath);
     const bridgePath = resolveBridgePath(extensionPath);
     const timeoutMs = getTimeoutMs();
 

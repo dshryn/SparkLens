@@ -33,27 +33,32 @@ Open VS Code Settings and search for `SparkLens`.
 
 ### sparklens.pythonPath
 
-The Python executable used to launch the bridge.
+Optional Python executable used to launch the bridge.
+
+If left empty, the extension automatically uses the local
+`<extension>/\.venv` interpreter when present and otherwise falls back
+to the system `python` command.
 
 Examples:
 
 - `python`
 - `python3`
-- An absolute path to a Python executable.
+- `D:\\SparkLens\\vscode-extension\\.venv\\Scripts\\python.exe`
 
 The selected environment must also have the dependencies required by
 the SparkLens backend installed.
 
 ### sparklens.projectPath
 
-The absolute path to the SparkLens repository root.
+Optional absolute path to the SparkLens repository root.
 
 Example:
 
 `D:\Projects\SparkLens`
 
-Leave this empty when the active workspace is the SparkLens
-repository and its root contains `services/pipeline.py`.
+If left empty, the extension automatically resolves the backend root
+from the extension directory or the active workspace when it contains
+`services/pipeline.py` and `analyzer/analyzer.py`.
 
 ### sparklens.analysisTimeoutSeconds
 

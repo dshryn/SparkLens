@@ -42,13 +42,13 @@
       "properties": {
         "sparklens.pythonPath": {
           "type": "string",
-          "default": "python",
-          "description": "Python executable used to launch the SparkLens bridge. Examples: python, python3, or an absolute path to a Python executable."
+          "default": "",
+          "description": "Optional Python executable used to launch the SparkLens bridge. When empty, the extension uses the workspace's local .venv when present, then falls back to python."
         },
         "sparklens.projectPath": {
           "type": "string",
           "default": "",
-          "description": "Optional absolute path to the SparkLens repository root or installed source checkout. Leave empty to discover it from the workspace."
+          "description": "Optional absolute path to the SparkLens repository root or installed source checkout. When empty, the extension auto-discovers the backend root from the extension directory or the active workspace."
         },
         "sparklens.analysisTimeoutSeconds": {
           "type": "number",
