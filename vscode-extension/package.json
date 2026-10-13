@@ -50,6 +50,11 @@
           "default": "",
           "description": "Optional absolute path to the SparkLens repository root or installed source checkout. When empty, the extension auto-discovers the backend root from the extension directory or the active workspace."
         },
+        "sparklens.enableAI": {
+          "type": "boolean",
+          "default": false,
+          "description": "Enable the existing Gemini explanation pipeline. This may make network requests and requires GEMINI_API_KEY."
+        },
         "sparklens.analysisTimeoutSeconds": {
           "type": "number",
           "default": 120,

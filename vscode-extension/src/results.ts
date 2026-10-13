@@ -207,7 +207,8 @@ function formatRecommendation(
 
 export function renderResults(
     channel: vscode.OutputChannel,
-    result: unknown
+    result: unknown,
+    aiError: { code: string; message: string } | null = null
 ): void {
     channel.clear();
 
@@ -215,18 +216,6 @@ export function renderResults(
     channel.appendLine("             SPARKLENS");
     channel.appendLine("========================================");
     channel.appendLine("");
-
-    const summary = findField(
-        result,
-        ["summary", "overview"]
-    );
-
-    if (summary !== undefined) {
-        channel.appendLine("SUMMARY");
-        channel.appendLine("----------------------------------------");
-        channel.appendLine(formatValue(summary));
-        channel.appendLine("");
-    }
 
     const statistics = findField(
         result,
@@ -245,7 +234,7 @@ export function renderResults(
         ["findings"]
     );
 
-    channel.appendLine("FINDINGS");
+    channel.appendLine("RULE-BASED FINDINGS");
     channel.appendLine("----------------------------------------");
 
     if (findings && findings.length > 0) {
@@ -268,25 +257,54 @@ export function renderResults(
         channel.appendLine("");
     }
 
-    const recommendations = findArray(
-        result,
-        ["recommendations"]
-    );
+    const explanation =
+        isRecord(result) && isRecord(result.explanation)
+            ? result.explanation
+            : undefined;
 
-    channel.appendLine("RECOMMENDATIONS");
+    channel.appendLine("GEMINI AI EXPLANATION");
     channel.appendLine("----------------------------------------");
 
-    if (recommendations && recommendations.length > 0) {
-        recommendations.forEach((recommendation, index) => {
-            channel.appendLine(
-                formatRecommendation(recommendation, index)
-            );
+    if (aiError) {
+        channel.appendLine(
+            "AI explanation failed; rule-based findings are preserved."
+        );
+        channel.appendLine(aiError.message);
+        channel.appendLine("");
+    } else if (explanation) {
+        channel.appendLine(`Summary: ${formatValue(explanation.summary)}`);
+        channel.appendLine("");
+        channel.appendLine(formatValue(explanation.explanation));
+        channel.appendLine("");
 
+        const recommendations =
+            Array.isArray(explanation.recommendations)
+                ? explanation.recommendations
+                : [];
+        if (recommendations.length > 0) {
+            channel.appendLine("AI-generated recommendations");
+            recommendations.forEach((recommendation, index) => {
+                channel.appendLine(
+                    formatRecommendation(recommendation, index)
+                );
+            });
             channel.appendLine("");
-        });
+        }
+
+        const insights =
+            Array.isArray(explanation.insights)
+                ? explanation.insights
+                : [];
+        if (insights.length > 0) {
+            channel.appendLine("AI-generated insights");
+            insights.forEach((insight, index) => {
+                channel.appendLine(formatFinding(insight, index));
+                channel.appendLine("");
+            });
+        }
     } else {
         channel.appendLine(
-            "No recommendations array was found in the returned backend result."
+            "No AI explanation was returned by the backend."
         );
 
         channel.appendLine("");

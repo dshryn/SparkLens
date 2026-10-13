@@ -92,7 +92,9 @@ export function activate(
                             {
                                 plan,
                                 projectRoot,
-                                enableAI: false
+                                enableAI: vscode.workspace
+                                    .getConfiguration("sparklens")
+                                    .get<boolean>("enableAI", false)
                             },
                             cancellationToken
                         );
@@ -110,7 +112,8 @@ export function activate(
 
                         renderResults(
                             output,
-                            response.data.result
+                            response.data.result,
+                            response.data.aiError
                         );
 
                         vscode.window.showInformationMessage(

@@ -73,6 +73,23 @@ The maximum time permitted for an analysis.
 
 The default is 120 seconds.
 
+### sparklens.enableAI
+
+Enables the existing Gemini explanation path in
+`AnalysisPipeline.run(plan, enable_ai=True)`. It defaults to `false`
+to preserve deterministic, offline analysis unless you explicitly opt
+in. When enabled, the SparkLens Output channel distinguishes the
+rule-based findings from the Gemini explanation, recommendations, and
+insights.
+
+The existing Python backend reads `GEMINI_API_KEY` from the process
+environment. It also calls `python-dotenv`'s `load_dotenv()` while
+loading the pipeline, so a `.env` file in the SparkLens repository root
+is loaded because that is the bridge subprocess working directory. Add
+the key there as `GEMINI_API_KEY=...` or provide it in the environment
+that launches VS Code. Do not put the key in VS Code settings. The
+extension does not log the key or Gemini's raw API error details.
+
 ## Development
 
 Open a terminal in this directory.
@@ -119,14 +136,10 @@ It expects the pipeline to expose:
 
 `AnalysisPipeline.run(plan, enable_ai=True)`
 
-The extension explicitly calls this method with `enable_ai=False`, so
-SparkLens extension analysis remains deterministic and does not invoke
-AI explanations by default.
-
-Verify the constructor and method signature against the actual
-SparkLens source before relying on this integration.
-
-The adapter must be updated if the actual API differs.
+The extension passes the `sparklens.enableAI` setting to this method.
+When disabled, results remain deterministic. If Gemini fails while
+enabled, the bridge reruns deterministic analysis and returns those
+findings along with a safe AI failure diagnostic.
 
 ## Troubleshooting
 
@@ -165,7 +178,7 @@ The initial implementation provides:
 - Findings and recommendations presentation.
 - Dependency diagnostics.
 
-Gemini explanations and DAG visualization are follow-up features.
+DAG visualization is a follow-up feature.
 
 The extension does not modify the existing CLI, Streamlit dashboard,
 Python package version, or published PyPI package.

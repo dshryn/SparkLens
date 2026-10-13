@@ -354,10 +354,33 @@ def handle_request(
 
     configure_project_root(project_root)
 
-    result = run_existing_pipeline(
-        plan=plan,
-        enable_ai=enable_ai,
-    )
+    ai_error = None
+    try:
+        result = run_existing_pipeline(
+            plan=plan,
+            enable_ai=enable_ai,
+        )
+    except BridgeError as exc:
+        if not enable_ai or exc.code != "ANALYSIS_FAILED":
+            raise
+
+        error_type = (
+            type(exc.__cause__).__name__
+            if exc.__cause__ is not None
+            else "UnknownError"
+        )
+        result = run_existing_pipeline(
+            plan=plan,
+            enable_ai=False,
+        )
+        ai_error = {
+            "code": "AI_EXPLANATION_FAILED",
+            "message": (
+                f"Gemini failed ({error_type}). Check GEMINI_API_KEY, "
+                "network connectivity, and Gemini quota. Rule-based "
+                "findings were preserved."
+            ),
+        }
 
     try:
         normalized = normalize_json_value(result)
@@ -377,6 +400,7 @@ def handle_request(
     return success_response(
         {
             "result": normalized,
+            "ai_error": ai_error,
         }
     )
 

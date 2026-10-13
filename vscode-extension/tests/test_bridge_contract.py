@@ -1,12 +1,19 @@
 import importlib.util
 import json
 import sys
+import types
 import unittest
-from unittest.mock import patch
+from unittest.mock import Mock, call, patch
 
 from dataclasses import dataclass
 from enum import Enum
 from pathlib import Path
+
+REPOSITORY_ROOT = Path(__file__).resolve().parents[2]
+if str(REPOSITORY_ROOT) not in sys.path:
+    sys.path.insert(0, str(REPOSITORY_ROOT))
+
+from ai.models import AIExplanation, AIInsight
 
 
 BRIDGE_PATH = (
@@ -123,6 +130,119 @@ class BridgeContractTests(unittest.TestCase):
             context.exception.message,
         )
 
+    def test_pipeline_receives_ai_enabled_and_disabled_flags(self):
+        pipeline = Mock()
+        module = types.ModuleType("services.pipeline")
+        module.AnalysisPipeline = Mock(
+            return_value=types.SimpleNamespace(run=pipeline)
+        )
+        pipeline.return_value = {"result": "test"}
+
+        with patch.dict(sys.modules, {"services.pipeline": module}):
+            bridge.run_existing_pipeline("plan", enable_ai=False)
+            bridge.run_existing_pipeline("plan", enable_ai=True)
+
+        self.assertEqual(
+            pipeline.call_args_list,
+            [
+                call("plan", enable_ai=False),
+                call("plan", enable_ai=True),
+            ],
+        )
+
+    def test_missing_gemini_key_keeps_pipeline_analysis(self):
+        import services.pipeline as pipeline_module
+
+        plan = (
+            REPOSITORY_ROOT / "demo_plans" / "01_simple_scan.txt"
+        ).read_text(
+            encoding="utf-8"
+        )
+
+        with patch.object(pipeline_module.os, "getenv", return_value=None):
+            response = bridge.handle_request(
+                {
+                    "action": "analyze",
+                    "plan": plan,
+                    "enable_ai": True,
+                    "project_root": str(REPOSITORY_ROOT),
+                }
+            )
+
+        result = response["data"]["result"]
+        self.assertTrue(response["success"])
+        self.assertIsNone(response["data"]["ai_error"])
+        self.assertEqual(
+            result["explanation"]["summary"],
+            "Gemini API key not configured.",
+        )
+        self.assertGreater(
+            len(result["analysis"]["report"]["findings"]),
+            0,
+        )
+
+    def test_ai_failure_returns_deterministic_findings(self):
+        def fail_ai_then_return_rules(plan, enable_ai):
+            if enable_ai:
+                try:
+                    raise RuntimeError("sensitive provider detail")
+                except RuntimeError as cause:
+                    raise bridge.BridgeError(
+                        "ANALYSIS_FAILED",
+                        "The AI step failed.",
+                    ) from cause
+
+            return {
+                "analysis": {
+                    "report": {
+                        "findings": [{"title": "Preserved rule finding"}],
+                    }
+                },
+                "explanation": {
+                    "summary": "AI explanation disabled.",
+                    "explanation": "Deterministic analysis only.",
+                    "recommendations": [],
+                    "insights": [],
+                    "model": "none",
+                },
+            }
+
+        with (
+            patch.object(bridge, "configure_project_root"),
+            patch.object(
+                bridge,
+                "run_existing_pipeline",
+                side_effect=fail_ai_then_return_rules,
+            ),
+        ):
+            response = bridge.handle_request(
+                {
+                    "action": "analyze",
+                    "plan": "test plan",
+                    "enable_ai": True,
+                }
+            )
+
+        self.assertTrue(response["success"])
+        self.assertEqual(
+            response["data"]["result"]["analysis"]["report"]["findings"][0][
+                "title"
+            ],
+            "Preserved rule finding",
+        )
+        self.assertEqual(
+            response["data"]["ai_error"]["code"],
+            "AI_EXPLANATION_FAILED",
+        )
+        self.assertIn(
+            "RuntimeError",
+            response["data"]["ai_error"]["message"],
+        )
+        self.assertNotIn(
+            "sensitive provider detail",
+            response["data"]["ai_error"]["message"],
+        )
+
     def test_serializes_dataclass_and_enum(self):
         finding = ExampleFinding(
             title="Potential shuffle",
@@ -145,6 +265,34 @@ class BridgeContractTests(unittest.TestCase):
         self.assertEqual(
             result["evidence"],
             ["Exchange", "Sort"],
+        )
+
+    def test_serializes_ai_explanation_fields(self):
+        explanation = AIExplanation(
+            summary="AI summary",
+            explanation="AI explanation",
+            recommendations=["Recommendation"],
+            insights=[
+                AIInsight(
+                    category="performance",
+                    title="AI insight",
+                    description="AI detail",
+                )
+            ],
+            model="gemini-2.5-flash",
+        )
+
+        result = bridge.normalize_json_value(explanation)
+        serialized = json.loads(json.dumps(result, allow_nan=False))
+
+        self.assertEqual(serialized["summary"], "AI summary")
+        self.assertEqual(
+            serialized["recommendations"],
+            ["Recommendation"],
+        )
+        self.assertEqual(
+            serialized["insights"][0]["title"],
+            "AI insight",
         )
 
     def test_success_response_contract(self):

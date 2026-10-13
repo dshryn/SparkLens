@@ -12,6 +12,7 @@ export interface BridgeResponse {
     success: boolean;
     data: {
         result: unknown;
+        aiError: BridgeError | null;
     } | null;
     error: BridgeError | null;
 }
@@ -215,7 +216,8 @@ function validateResponse(
         return {
             success: true,
             data: {
-                result: data.result
+                result: data.result,
+                aiError: parseBridgeError(data.ai_error)
             },
             error: null
         };
@@ -233,21 +235,37 @@ function validateResponse(
         );
     }
 
-    const error = rawError as Record<string, unknown>;
-
     return {
         success: false,
         data: null,
-        error: {
-            code:
-                typeof error.code === "string"
-                    ? error.code
-                    : "UNKNOWN_ERROR",
-            message:
-                typeof error.message === "string"
-                    ? error.message
-                    : "The SparkLens bridge reported an unspecified error."
+        error: parseBridgeError(rawError) ?? {
+            code: "UNKNOWN_ERROR",
+            message: "The SparkLens bridge reported an unspecified error."
         }
+    };
+}
+
+function parseBridgeError(value: unknown): BridgeError | null {
+    if (
+        typeof value !== "object" ||
+        value === null ||
+        Array.isArray(value)
+    ) {
+        return null;
+    }
+
+    const error = value as Record<string, unknown>;
+
+    if (typeof error.message !== "string") {
+        return null;
+    }
+
+    return {
+        code:
+            typeof error.code === "string"
+                ? error.code
+                : "UNKNOWN_ERROR",
+        message: error.message
     };
 }
 export async function analyzePlan(
