@@ -4,3 +4,5 @@ out/
 coverage/
 __pycache__/
 *.py[cod]
+!.vscode/
+!.vscode/**

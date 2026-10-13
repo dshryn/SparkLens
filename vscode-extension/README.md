@@ -41,6 +41,9 @@ Examples:
 - `python3`
 - An absolute path to a Python executable.
 
+The selected environment must also have the dependencies required by
+the SparkLens backend installed.
+
 ### sparklens.projectPath
 
 The absolute path to the SparkLens repository root.
@@ -80,11 +83,15 @@ Run the Python bridge contract tests:
 
 ## Launch the Extension Development Host
 
-1. Open the `vscode-extension` directory in VS Code.
-2. Open the Run and Debug panel.
-3. Create or select an Extension Development Host launch
-   configuration that starts the extension from this directory.
-4. Start the Extension Development Host.
+1. Open the `vscode-extension` directory itself in VS Code.
+2. Run `npm install` if dependencies have not already been installed.
+3. Press F5 and select **Run SparkLens Extension** if prompted.
+   The launch configuration runs `npm: compile` before starting
+   the Extension Development Host.
+4. In the new host, set `sparklens.projectPath` to the SparkLens
+   repository root if its workspace is not that root, and set
+   `sparklens.pythonPath` to a Python 3.12+ environment with the
+   backend dependencies installed.
 5. Open a Spark physical execution plan.
 6. Run `SparkLens: Analyze Current File`.
 
@@ -98,7 +105,11 @@ The Python bridge currently imports:
 
 It expects the pipeline to expose:
 
-`AnalysisPipeline.run(plan, enable_ai=False)`
+`AnalysisPipeline.run(plan, enable_ai=True)`
+
+The extension explicitly calls this method with `enable_ai=False`, so
+SparkLens extension analysis remains deterministic and does not invoke
+AI explanations by default.
 
 Verify the constructor and method signature against the actual
 SparkLens source before relying on this integration.
