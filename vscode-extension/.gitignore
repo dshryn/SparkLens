@@ -1,0 +1,6 @@
+node_modules/
+out/
+*.vsix
+coverage/
+__pycache__/
+*.py[cod]

@@ -1,0 +1,74 @@
+{
+  "name": "sparklens-vscode",
+  "displayName": "SparkLens",
+  "description": "Analyze Apache Spark physical execution plans directly in VS Code.",
+  "version": "0.1.0",
+  "publisher": "sparklens-local",
+  "license": "MIT",
+  "engines": {
+    "vscode": "^1.90.0"
+  },
+  "categories": [
+    "Other",
+    "Visualization"
+  ],
+  "keywords": [
+    "spark",
+    "apache-spark",
+    "execution-plan",
+    "performance",
+    "analysis"
+  ],
+  "activationEvents": [
+    "onCommand:sparklens.analyzeCurrentFile"
+  ],
+  "main": "./out/extension.js",
+  "files": [
+    "out/**",
+    "python/**",
+    "README.md",
+    "package.json"
+  ],
+  "contributes": {
+    "commands": [
+      {
+        "command": "sparklens.analyzeCurrentFile",
+        "title": "SparkLens: Analyze Current File",
+        "category": "SparkLens"
+      }
+    ],
+    "configuration": {
+      "title": "SparkLens",
+      "properties": {
+        "sparklens.pythonPath": {
+          "type": "string",
+          "default": "python",
+          "description": "Python executable used to launch the SparkLens bridge. Examples: python, python3, or an absolute path to a Python executable."
+        },
+        "sparklens.projectPath": {
+          "type": "string",
+          "default": "",
+          "description": "Optional absolute path to the SparkLens repository root or installed source checkout. Leave empty to discover it from the workspace."
+        },
+        "sparklens.analysisTimeoutSeconds": {
+          "type": "number",
+          "default": 120,
+          "minimum": 5,
+          "maximum": 600,
+          "description": "Maximum time allowed for one analysis, in seconds."
+        }
+      }
+    }
+  },
+  "scripts": {
+    "compile": "tsc -p ./",
+    "watch": "tsc -watch -p ./",
+    "check-types": "tsc --noEmit -p ./",
+    "test:python": "python -m unittest discover -s tests -p \"test_*.py\" -v"
+  },
+  "devDependencies": {
+    "@types/node": "^20.14.0",
+    "@types/vscode": "^1.90.0",
+    "typescript": "^5.5.0"
+  }
+}
